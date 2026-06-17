@@ -1,58 +1,184 @@
 \chapter{Methodology}
 \label{sec:methodology}
-% Focus on what you add to the existing method. Explain what you will do and why (and how). Do not forget to characterize your research design. There should be a sub-section on the evaluation. 
-%For DS students, this normally means using manually labelled or ground truth data. For IS students, it is not always needed to have a separate methodology section. You can also integrate the approach with the results in one section. It depends on your type of research what is best fitting.
-Write about your methodology here. Focus on your own contribution. Indicate exactly how you will assess your work in terms of evaluation.
 
-% It is possible to use a separate section for the Experimental Setup, which then focuses on all settings used in your experiments. It also possible to address the settings in a sub-section under Methodology. 
-\section{Equations}
-        We estimate the deformable template parameters~$\theta_t$ and the deformation fields for every data point using maximum likelihood. Letting~$\mathcal{V} = \{\boldsymbol{v}_i\}$ and~$\mathcal{A} = \{a_i\}$,
-        %
-        \begin{align}
-                \hat{\theta_t}, \hat{\mathcal{V}} &= \arg \max_{\theta_t, \mathcal{V}} \log p_{\theta_t}(\mathcal{V} | \mathcal{X},  \mathcal{A}) \nonumber \\
-                &= \arg \max_{\theta_t, \mathcal{V}} \log p_{\theta_t}(\mathcal{X} | \mathcal{V}; \mathcal{A}) + \log p(\mathcal{V}),
-                \label{eq:logpost}
-        \end{align}
-        %
-        where the first term captures the likelihood of the data and deformations, and the second term controls a prior over the deformation fields.
+This chapter presents the method. We first formalize the problem and the notion of identifiability that organizes the thesis (\autoref{sec:method_overview}). We then describe the shared encoder (\autoref{sec:method_encoder}), the family of latent-structure variants (\autoref{sec:method_latent}), the spatially local encoder that is our main fix for scaling (\autoref{sec:method_local}), and the family of decoders (\autoref{sec:method_decoder}). We then give the reconstruction objectives, including the gauge-invariant covariance and permutation-invariant set losses (\autoref{sec:method_recon}), and the semantic and disentanglement objectives (\autoref{sec:method_semantic}). Finally we describe the data pipeline (\autoref{sec:method_data}), the second-stage generative design (\autoref{sec:method_stage2}), and the experimental setup (\autoref{sec:method_setup}). Throughout, we are explicit about which components are inherited from Can3Tok \citep{gao2025can3tok} and Michelangelo \citep{zhao2023michelangelo} and which are our additions.
 
-        \begin{proof}
-                Awesome proof.
-        \end{proof}
+% =====================================================================
+\section{Overview and Problem Formulation}
+\label{sec:method_overview}
+% =====================================================================
 
-\section{Long equations in two columns}
-        Note that equations can fill the width pretty quickly when there are two columns.
-        Different mathemtical environments, beyond the basic \verb|\begin{equation}| may be of use. Taking as an example the binomial formula which overflows in Eq. \eqref{binom:eq}:
-        \begin{equation}
-                \label{binom:eq}
-                (1+x)^n = \underbrace{(1+x)\times...\times(1+x)}_{n \text{ times}} = \sum_{k=0}^n \binom{n}{k}x^k = \sum_{k=0}^n\frac{n!}{k!(n-k)!}x^k .
-        \end{equation}
+\paragraph{The representation.} A scene is a set of $N$ 3D Gaussian primitives $\mathcal{G} = \{g_i\}_{i=1}^{N}$. Each primitive is
+\begin{equation}
+  g_i = (\mu_i,\, c_i,\, \alpha_i,\, s_i,\, q_i),
+\end{equation}
+with position $\mu_i \in \mathbb{R}^3$, colour $c_i \in \mathbb{R}^3$ (the diffuse term of the spherical-harmonic colour), opacity $\alpha_i \in (0,1)$, per-axis scale $s_i \in \mathbb{R}^3_{+}$, and unit quaternion $q_i \in \mathbb{S}^3$. The orientation and scale define the anisotropic covariance
+\begin{equation}
+  \Sigma_i \;=\; R(q_i)\,\mathrm{diag}(s_i^2)\,R(q_i)^\top,
+  \label{eq:covariance}
+\end{equation}
+where $R(q)$ is the rotation matrix of $q$. We pack each primitive into a $14$-dimensional vector and a scene into a tensor in $\mathbb{R}^{N \times 14}$.
 
-        The \verb|\begin{multline}| environment is an easy although crude fix:
-        \begin{multline}
-                (1+x)^n = \underbrace{(1+x)\times...\times(1+x)}_{n \text{ times}} \\
-                = \sum_{k=0}^n \binom{n}{k}x^k \\
-                = \sum_{k=0}^n\frac{n!}{k!(n-k)!}x^k .
-        \end{multline}
-        \verb|\begin{align}| tends to give the most control over the final result:
-        \begin{align}
-                (1+x)^n &= \underbrace{(1+x)\times...\times(1+x)}_{n \text{ times}} \nonumber\\
-                        &= \sum_{k=0}^n \binom{n}{k}x^k \nonumber\\
-                        &= \sum_{k=0}^n\frac{n!}{k!(n-k)!}x^k .
-        \end{align}
+\paragraph{The goal.} We want an autoencoder, the first stage of a two-stage pipeline, consisting of an encoder $E_\phi$ that maps $\mathcal{G}$ to a fixed-size latent $Z \in \mathbb{R}^{T \times d}$ ($T$ tokens of width $d$) and a decoder $D_\theta$ that reconstructs $\hat{\mathcal{G}}$ from $Z$. We train it as a variational autoencoder \citep{kingma2014vae}: $E_\phi$ outputs the parameters of a diagonal Gaussian posterior $q_\phi(Z \mid \mathcal{G}) = \mathcal{N}(\mu_Z, \sigma_Z^2)$, we sample $Z$ by the reparameterization trick, and we optimize a reconstruction term against a Kullback-Leibler regularizer toward a standard normal prior,
+\begin{equation}
+  \mathcal{L} \;=\; \mathcal{L}_{\mathrm{recon}}(\hat{\mathcal{G}}, \mathcal{G}) \;+\; \beta\, D_{\mathrm{KL}}\!\big(q_\phi(Z\mid\mathcal{G}) \,\|\, \mathcal{N}(0, I)\big),
+  \label{eq:elbo}
+\end{equation}
+with a deliberately small $\beta$ so that the latent retains enough capacity for accurate reconstruction while remaining smooth enough for the second stage. The second stage then learns a generative model of $Z$ (\autoref{sec:method_stage2}). A schematic of the full pipeline is given in \autoref{fig:pipeline}.
 
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=0.9\linewidth, height=0.26\textheight]{example-image}
+  \caption[Two-stage pipeline overview]{\textbf{Two-stage pipeline.} Stage 1 (this thesis) is a variational autoencoder that tokenizes a scene-level 3DGS set into a structured latent $Z$ and reconstructs the Gaussians. Stage 2 is a latent flow-matching transformer that models $p(Z)$ for generation, and an inpainting variant for scene completion. \emph{[FIGURE TODO: replace with the exported pipeline diagram. Show: raw 3DGS scene $\to$ normalization and Hilbert serialization $\to$ shared encoder $\to$ latent $Z$ $\to$ decoder $\to$ reconstructed Gaussians, with the Stage 2 layout/geometry models feeding the frozen decoder. Source: README ``Architecture at a Glance'' and ``Second-Stage Generation Pipeline''.]}}
+  \label{fig:pipeline}
+\end{figure*}
 
-\section{Math styles}
-        Different font styles can be used for equations:
-        \begin{itemize}
-                \item \verb|$a b c A B C 1 2 3$|: $ a b c A B C 1 2 3 $
-                \item \verb|$\mathbf{a b c A B C 1 2 3}$|: $ \mathbf{a b c A B C 1 2 3} $
-                \item \verb|$\mathfrak{a b c A B C 1 2 3}$|: $ \mathfrak{a b c A B C 1 2 3} $
-                \item \verb|$\mathcal{ABC}$|: $ \mathcal{ABC} $
-                \item \verb|$\mathbb{ABC}$|: $ \mathbb{ABC} $
-                \item \verb|$\mathsf{ABC}$|: $ \mathsf{ABC} $
-                \item \verb|$\mathtt{ABC}$|: $ \mathtt{ABC} $
-        \end{itemize}
+\paragraph{Identifiability and gauge.} The central difficulty is that the per-primitive parameters of a \emph{pre-fitted} 3DGS scene are non-identifiable: distinct parameter sets render to the same image and are therefore equivalent as scene content, yet differ as regression targets. We call this nuisance variation \emph{gauge}. Three facets recur.
+\begin{itemize}
+  \item \textbf{Set gauge (order).} $\mathcal{G}$ is a set; any permutation of its elements is the same scene. A loss that compares the $i$-th output to the $i$-th target therefore depends on an arbitrary ordering and is not a well-defined function of the scene.
+  \item \textbf{Orientation gauge.} The covariance in \autoref{eq:covariance} is invariant to the quaternion double cover ($q \equiv -q$), to relabelling the axes (permuting the columns of $R$ together with the entries of $s$), to column sign flips, and, when $s$ is near-isotropic, to almost any rotation. An element-wise loss on $q$ penalizes all of this, none of which changes the Gaussian.
+  \item \textbf{Placement gauge.} Within a small spatial region, exactly where each individual Gaussian sits is largely a freedom of the fit; regressing the exact position forces the network to memorize nuisance.
+\end{itemize}
+Our thesis is that scaling fails primarily because these gauges make the naive target unlearnable, and that the fixes are to (i) impose a canonical order, (ii) replace gauge-sensitive losses with gauge-invariant ones, and (iii) make the latent compositional so it generalizes rather than memorizes. The remainder of the chapter develops each.
 
-        Text and names in equations should be dealt with the \verb|\text| command, for instance:\\
-        \verb|$\mathcal L_{\text{SuperLoss}}$|: $\mathcal L_{\text{SuperLoss}}$ and not $\mathcal L_{SuperLoss}$.
+% =====================================================================
+\section{Shared Encoder}
+\label{sec:method_encoder}
+% =====================================================================
+
+All variants share one encoder, inherited in form from the Michelangelo shape-latent VAE \citep{zhao2023michelangelo} and Can3Tok \citep{gao2025can3tok}, and built on a Perceiver-style cross-attention bottleneck \citep{jaegle2021perceiver}.
+
+\paragraph{Input features.} Each Gaussian is lifted to an input feature by concatenating a Fourier positional encoding \citep{tancik2020fourier} of its normalized absolute position, a Fourier encoding of a coarse voxel-centre coordinate (a hashed grid index that gives the encoder an explicit notion of cell membership), and the raw Gaussian parameters (opacity, scale, quaternion, and colour or colour residual). A linear projection maps the concatenated feature to the model width.
+
+\paragraph{Cross-attention bottleneck.} A set of learned query tokens cross-attends to the projected Gaussian features. We use one global query, whose output we call the \emph{shape embedding} $e \in \mathbb{R}^{w}$ and which summarizes the whole scene, and $K$ geometry queries, whose outputs are the per-region geometry tokens. In the baseline encoder a stack of self-attention layers then mixes the query tokens. Because the queries are fixed in number, the latent size is independent of $N$: a scene with any number of primitives is encoded into the same token budget, which is the property that lets the encoder ingest a variable-size, unordered set \citep{jaegle2022perceiverio}. The encoder is therefore permutation-invariant by construction, which already resolves the set gauge on the \emph{input} side; the set gauge re-appears only in the decoder objective (\autoref{sec:method_recon}).
+
+% =====================================================================
+\section{Latent-Structure Variants}
+\label{sec:method_latent}
+% =====================================================================
+
+We study three ways of organizing the latent $Z$, illustrated in \autoref{fig:latent_variants}. They differ in whether the latent is undifferentiated, explicitly split into semantic and geometric subspaces, or kept in one-to-one correspondence with spatial regions.
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=0.95\linewidth, height=0.28\textheight]{example-image}
+  \caption[Latent-structure and decoder variants]{\textbf{Stage 1 architecture variants.} Left: the baseline (C) with undifferentiated geometry tokens. Centre: the disentangled latent (A) splitting $Z$ into a semantic subspace $z_s$ and a geometry subspace $z_g$ with auxiliary heads and disentanglement losses. Right: the structured per-token latent with the spatially local encoder, where token $k$ corresponds to Hilbert block $k$. Decoder options (flat MLP, token-local MLP, anchor-relative, cross-attention conditioning) are shown beneath. \emph{[FIGURE TODO: replace with exported diagrams from README sections ``Shared Encoder Pipeline'', ``Strategy A/B1/C'', and the structured/local-encoder description. Keep the three latent layouts side by side.]}}
+  \label{fig:latent_variants}
+\end{figure*}
+
+\paragraph{Baseline (undifferentiated).} The simplest variant treats $Z$ as $T$ undifferentiated geometry tokens with no semantic split and no layout conditioning. This is the closest analogue to the published Can3Tok latent and serves as our control.
+
+\paragraph{Disentangled latent.} Motivated by the wish for a latent in which coarse scene identity and fine geometry are separated, we split $Z$ into a small semantic subspace $z_s$ (a handful of tokens routed from the shape embedding) and a larger geometry subspace $z_g$ (routed from the geometry tokens). Both are KL-regularized. Auxiliary heads read $z_s$ to predict scene-level quantities (a mean colour, a category-distribution, and per-category spatial centroids), which encourages $z_s$ to carry layout-level information, while disentanglement losses (\autoref{sec:method_semantic}) push $z_g$ to be sufficient for geometry and to be statistically separated from $z_s$. This variant is where our semantic-structure and disentanglement experiments were carried out at small scale.
+
+\paragraph{Structured per-token latent.} The third variant, which is the one used in our large-scale model, keeps the latent in one-to-one correspondence with space. After serializing the Gaussian set along a Hilbert curve (\autoref{sec:method_data}), a contiguous block of primitives is a local spatial cluster. Latent token $k$ is made to encode block $k$: the per-token posterior is used directly as $z$, and the dense global re-projection that the baseline uses to mix all tokens is skipped. This is what makes the latent \emph{compositional}: token $k$ always describes the same kind of local patch, patches recur across scenes, and so the representation transfers rather than memorizing a per-scene global code. Realizing this fully requires the local encoder of \autoref{sec:method_local}.
+
+% =====================================================================
+\section{Spatially Local Encoder}
+\label{sec:method_local}
+% =====================================================================
+
+The baseline encoder mixes all query tokens with global self-attention, so each latent token is a function of the whole scene. At small scale this is harmless, but at the scale of thousands of heterogeneous scenes we found it encourages the latent to behave as a memorized global code, which generalizes poorly (\autoref{sec:results}). We therefore replace the global bottleneck with a windowed, spatially local encoder.
+
+Concretely, with the Gaussian set Hilbert-ordered into $K$ contiguous blocks of $g = \lceil N/K \rceil$ primitives each, geometry query $k$ attends only to the primitives in a local window of blocks around block $k$ (from block $k-\omega$ to block $k+\omega$ for a small half-width $\omega$), rather than to the whole scene. A single global query still attends to all primitives to provide a scene-level summary. No global self-attention runs inside the encoder, since that would re-mix the tokens and destroy the locality the windowing creates; cross-token interaction is deferred to the decoder transformer. Latent token $k$ therefore encodes the local geometry of block $k$, the same block that the decoder's anchor and token-local head reconstruct, giving an end-to-end alignment between encoder token, latent token, spatial region, and decoder slot. We treat the window scope as an ablation axis: setting the window to span the whole scene recovers a global encoder with otherwise identical structure, which isolates locality as the variable of interest (\autoref{sec:results}).
+
+% =====================================================================
+\section{Decoders}
+\label{sec:method_decoder}
+% =====================================================================
+
+The decoder maps $Z$ back to $N$ Gaussians. We consider several options that trade capacity against structure.
+
+\paragraph{Flat decoder.} The inherited decoder applies a transformer to the post-projected latent and then a large multilayer perceptron that flattens all tokens and regresses all $N \times 14$ outputs at once. This has very high capacity but a single dense bottleneck, which we found encourages memorization at scale.
+
+\paragraph{Token-local decoder.} We replace the flat head with a shared per-token multilayer perceptron: each of the $T$ decoder tokens decodes its own contiguous slice of $g$ Gaussians using shared weights. This removes the dense bottleneck, is far smaller in parameter count, and matches the block structure of the latent so that token $k$ decodes the primitives of block $k$. Per-primitive semantic features for the contrastive objective are routed through a pooled-hidden path that preserves the interface the flat decoder exposed.
+
+\paragraph{Anchor-relative position decoding.} In the spirit of Scaffold-GS \citep{lu2024scaffold} and the structural-reference idea of GaussianCube \citep{zhang2024gaussiancube}, we decode position as an anchor plus a bounded local offset,
+\begin{equation}
+  \hat{\mu}_i \;=\; a_{\,\tau(i)} \;+\; \rho \cdot \tanh(o_i),
+  \label{eq:anchor}
+\end{equation}
+where $a_{\tau(i)}$ is the anchor of the token $\tau(i)$ that owns primitive $i$ (the per-block centroid, predicted from the token), $o_i$ is the decoder's raw position output, and $\rho > 0$ is a learnable global offset scale. The $\tanh$ bound is the point: it forces the offset to be a genuinely \emph{local} displacement, so the coarse position must be carried by the anchor. This directly targets the placement gauge: the network is asked for ``which block, plus a small local correction'' rather than an absolute coordinate to be memorized.
+
+\paragraph{Conditioning decoders.} For the disentangled latent we also study decoders in which a layout subspace conditions geometry. In the cross-attention variant, the geometry tokens form the decoder sequence and the layout tokens are injected as keys and values at every layer, which is a stronger architectural separation than letting all tokens mix by self-attention. A deterministic projection of the shape embedding can also serve as a stable layout code for conditioning, which is useful for completion because encoding the same partial scene twice yields the same conditioning. These variants are most relevant to the second-stage design (\autoref{sec:method_stage2}).
+
+% =====================================================================
+\section{Reconstruction Objectives}
+\label{sec:method_recon}
+% =====================================================================
+
+The reconstruction term in \autoref{eq:elbo} is where the gauge problem is won or lost. We describe the objectives in increasing order of gauge-awareness.
+
+\paragraph{Element-wise loss with serialized order.} The simplest reconstruction loss compares matched slots,
+\begin{equation}
+  \mathcal{L}_{\mathrm{elem}} \;=\; \frac{1}{B}\sum_{i=1}^{N} \big\| \hat{g}_i - g_i \big\|_2,
+\end{equation}
+optionally with per-attribute weights. As discussed, this is only a meaningful function of the scene if slot $i$ corresponds to a stable target. We obtain such a correspondence by serializing both prediction and target along a fixed-frame Hilbert curve (\autoref{sec:method_data}), so that slot $i$ is a spatially stable location rather than, for example, the $i$-th most opaque primitive. This converts the otherwise unlearnable slot-to-target map into a Lipschitz one, the property for which the Hilbert curve is preferred over the Z-order curve \citep{wu2024ptv3}.
+
+\paragraph{Permutation-invariant set loss.} Serialization fixes the order \emph{between} blocks but not \emph{within} a block, where the assignment of which colour or orientation belongs to which primitive remains a gauge. A slot-aligned loss forces the decoder to break that gauge, which it cannot, so it emits the per-block mean (washed-out colour, round blobs). We therefore optionally match predicted and target primitives \emph{within} each block by entropic optimal transport. Writing $C$ for the matrix of squared feature distances between the $g$ predicted and $g$ target primitives of a block, we compute a soft assignment by Sinkhorn iteration \citep{cuturi2013sinkhorn} and score the matched pairs, following the assignment-then-score recipe of DETR \citep{carion2020detr}. The matching is detached, so the gradient flows only through the matched residual. The identity assignment recovers $\mathcal{L}_{\mathrm{elem}}$ exactly, so the set loss can only lower it.
+
+\paragraph{Gauge-invariant covariance loss.} For orientation and scale we avoid an element-wise loss on the quaternion, which penalizes the orientation gauge of \autoref{sec:method_overview}, and instead compare the covariances in \autoref{eq:covariance} directly. Two covariances that differ only by gauge are equal as matrices, so any metric on the matrix is gauge-invariant. We use the Bures (equivalently, $2$-Wasserstein between zero-mean Gaussians) shape term \citep{villani2009ot},
+\begin{equation}
+  d_{\mathrm{B}}^2(\Sigma_p, \Sigma_t) \;=\; \mathrm{tr}\!\Big( \Sigma_p + \Sigma_t - 2\,\big( \Sigma_t^{1/2}\,\Sigma_p\,\Sigma_t^{1/2} \big)^{1/2} \Big),
+  \label{eq:bures}
+\end{equation}
+and, as a cheaper and numerically very stable surrogate, the co-diagonalization upper bound
+\begin{equation}
+  d_{\mathrm{cd}}^2(\Sigma_p, \Sigma_t) \;=\; \big\| \Sigma_p^{1/2} - \Sigma_t^{1/2} \big\|_F^2,
+  \label{eq:burescodiag}
+\end{equation}
+which equals \autoref{eq:bures} when the two matrices commute. Matrix square roots are computed by a Newton-Schulz iteration under trace normalization, which is pure matrix multiplication and therefore differentiable and stable even at coincident eigenvalues. Position, colour, and opacity keep their ordinary residual norms, so only the scale-and-rotation block is replaced and the overall loss scale (and hence the balance with the KL and auxiliary terms) is preserved. Because the covariance square root is available in closed form as $\Sigma^{1/2} = R\,\mathrm{diag}(|s|)\,R^\top$, the gauge-invariant shape term folds directly into the per-primitive feature used by the Sinkhorn matching, so the set loss and the covariance loss compose at no extra cost.
+
+\paragraph{Diagnostics.} Because the raw quaternion error is gauge-blind, we monitor a gauge-invariant covariance error (mean per-primitive Bures distance) and the target anisotropy at evaluation time, so that reconstruction quality of orientation is measured by a quantity that is actually well-defined.
+
+% =====================================================================
+\section{Semantic and Disentanglement Objectives}
+\label{sec:method_semantic}
+% =====================================================================
+
+To make the latent semantically structured we add objectives that consume the per-primitive labels of SceneSplat-7K \citep{li2025scenesplat}.
+
+\paragraph{Per-primitive contrastive loss.} We attach a projection head that produces a normalized feature for each Gaussian and apply an InfoNCE objective \citep{oord2018cpc,chen2020simclr} that pulls together primitives sharing a category label and pushes apart those that do not, implemented efficiently against per-category prototypes. This is the objective that organizes the per-primitive feature space; we visualize its effect by principal-component projection of the features (\autoref{sec:results}). Only the labelled scenes contribute to this term; scenes from auxiliary sources without compatible labels are filtered out so there is no cross-taxonomy collision.
+
+\paragraph{Scene-level and disentanglement objectives.} For the disentangled latent we additionally use: auxiliary heads on $z_s$ that predict scene-level quantities; a cross-reconstruction loss that decodes a latent with $z_s$ swapped across the batch but $z_g$ kept, and requires the geometry to be reconstructed correctly, which forces $z_g$ to be sufficient for geometry independently of $z_s$; and an orthogonality penalty that decorrelates random projections of the $z_s$ and $z_g$ means. Consistent with the identifiability literature \citep{locatello2019challenging}, we treat this as weak, supervised structuring of the latent rather than strict factorization.
+
+% =====================================================================
+\section{Data Pipeline}
+\label{sec:method_data}
+% =====================================================================
+
+The data pipeline is where the gauge fixes are partly realized, and where the sampling question that we identify as central is decided.
+
+\paragraph{Dataset.} We use SceneSplat-7K \citep{li2025scenesplat}, comprising $7{,}916$ indoor 3DGS scenes derived from seven established sources, with per-primitive ScanNet-style category labels. Our large-scale training mixes a set of chunked interior scenes (which carry semantics) with additional full-scene sources (whose semantics are disabled and which therefore contribute only to reconstruction), and validates on held-out full scenes and on held-out chunks; the latter, being disjoint by construction from the training chunks, gives a clean in-distribution generalization measure. Exact counts and paths are given in \autoref{sec:method_setup} and the appendix.
+
+\paragraph{Normalization.} Scenes are unbounded and scale-inconsistent, so each is normalized into a canonical sphere of fixed radius. For chunked scenes we compute the normalization from the union of all chunks of a scene, so that all chunks of a room share one global coordinate frame, which is what makes a position target consistent across chunks of the same scene; full scenes use a per-scene normalization into the same radius.
+
+\paragraph{Sampling: the central practical lever.} A scene has far more primitives than we can encode, so a fixed number $N$ must be sampled. We study two choices. Opacity sampling keeps the $N$ most opaque primitives; this is simple and visually clean but makes the sampled density follow the opacity field, which is non-uniform and hard to compress. Density-uniform (farthest-point-style) sampling instead keeps a spatially uniform subset, which equalizes the per-token load. We also vary $N$ itself. This matters because the original Can3Tok pipeline samples a large budget (on the order of $40$k primitives) \emph{while the splats are still being jointly optimized}, so the optimization can adapt the primitives to the sample; in our setting the splats are pre-fitted and frozen, so the sample is of a fixed, gauge-ridden set. We found that a smaller budget (on the order of $10$k) converges substantially better than the larger one in the frozen-splat setting, which we attribute to the reduced within-block placement gauge per token. This sampling-and-ordering interaction is examined in \autoref{sec:results}.
+
+\paragraph{Serialization.} After sampling, the primitives are reordered along a Hilbert space-filling curve computed in the fixed canonical frame, so that array slot $i$ is a spatially stable location and consecutive slots are spatial neighbours \citep{skilling2004hilbert,wu2024ptv3}. The same ordering defines the contiguous blocks used by the local encoder, the anchors, and the token-local decoder. We retain the Z-order (Morton) curve as an ablation to test the locality claim.
+
+% =====================================================================
+\section{Second-Stage Generative Model}
+\label{sec:method_stage2}
+% =====================================================================
+
+The second stage learns to generate the Stage 1 latent. We adopt flow matching \citep{lipman2023flowmatching,liu2023rectified} with a transformer backbone \citep{peebles2023dit} operating on the frozen Stage 1 latent, and decode generated latents with the frozen Stage 1 decoder. The design is hierarchical, mirroring the latent's layout-versus-geometry structure, and is shown in \autoref{fig:stage2}.
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=0.95\linewidth, height=0.27\textheight]{example-image}
+  \caption[Stage 2 generation and completion variants]{\textbf{Stage 2 variants.} A layout model generates the coarse (layout/semantic) latent tokens from noise (optionally conditioned on text), then a geometry model generates the geometry tokens conditioned on the layout tokens; the frozen Stage 1 decoder turns the full latent into Gaussians. Scene completion replaces generation of the observed tokens with an inpainting procedure that fixes the encoded observed tokens and denoises only the unobserved ones. \emph{[FIGURE TODO: replace with exported diagrams from README ``Second-Stage Generation Pipeline'' (the layout DiT $\to$ geometry DiT generation flow and the completion/inpainting flow). Keep generation and completion as two rows.]}}
+  \label{fig:stage2}
+\end{figure*}
+
+\paragraph{Generation.} A layout model is trained by flow matching to transport noise to the coarse latent tokens, optionally conditioned on a text or class token by cross-attention. A geometry model is then trained to transport noise to the geometry tokens conditioned on the coarse tokens. Conditioning the geometry model on the coarse tokens by the same cross-attention structure used in the Stage 1 conditioning decoder keeps the two stages aligned in the same representational space. At inference, the layout model samples coarse tokens, the geometry model samples geometry tokens conditioned on them, and the frozen decoder produces the scene, with no encoder and no ground truth required.
+
+\paragraph{Completion.} Scene completion is posed as latent inpainting. A partial scan is encoded; the observed latent tokens are held fixed while the unobserved tokens are initialized from noise and denoised by the geometry model, conditioned on the (stable) coarse tokens; the frozen decoder then produces the completed scene. A deterministic layout code is advantageous here because the same partial scan yields the same conditioning. We specify these variants in full and set up the training, but, for the reasons developed in \autoref{sec:discussion}, do not bring completion to a finished, evaluated result; we treat it as the primary direction for future work and leave space for its results in \autoref{sec:results}.
+
+% =====================================================================
+\section{Experimental Setup}
+\label{sec:method_setup}
+% =====================================================================
+
+\paragraph{Architecture and training.} The encoder and decoder use a transformer width of $384$ with $12$ attention heads, $6$ encoder and $12$ decoder layers, and an $8$-frequency Fourier embedding, following the inherited configuration. The latent uses $512$ tokens; the per-token width is the principal capacity knob. We train with AdamW, a base learning rate of $1\times 10^{-4}$ with cosine warm restarts and a short linear warmup, a small fixed KL weight, mixed bf16 precision, and distributed data parallelism across H100 GPUs. Full hyperparameters, the exact loss weights, and the dataset counts are listed in \autoref{sec:apx:first_appendix} for reproducibility.
+
+\paragraph{Evaluation.} We evaluate reconstruction by per-attribute residual norms (position, colour, opacity, scale) reported on the same raw scale for training and validation so they are directly comparable, by the gauge-invariant covariance error for orientation and shape, and, for the final model, by image-space fidelity of renders of the reconstructed scenes (for example PSNR, SSIM, and LPIPS \citep{wang2004ssim,zhang2018lpips}); we leave space for these in \autoref{sec:results} as the final model finishes training. We measure generalization by the ratio of the held-out-full-scene error to the held-out-chunk error, where a ratio near one indicates no overfitting. We assess semantic structure qualitatively by principal-component visualizations of the per-primitive feature space and quantitatively by clustering and linear-probe measures on those features. Stage 2 generation and completion are evaluated by generation-quality and fidelity metrics for which we likewise leave space.

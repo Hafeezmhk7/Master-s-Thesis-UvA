@@ -1,30 +1,183 @@
 \chapter{Results}
 \label{sec:results}
-% Give the outcomes for each research question in the form of a table or graphic (with caption).
-Write about your results here. Good captions to tables and/or figures are key.
 
-% Sometimes,  especially  if  you  have  quite  different experiments or research  questions,  it makes sense to interleave the experimental setup and the results sections, so the reader does not get lost. It is then helpful to structure clearly in (sub)subsections.
+We organize results by research question. \autoref{sec:res_scaling} addresses RQ1 (scaling and reconstruction), \autoref{sec:res_identifiability} addresses RQ2 (identifiability, ordering, and sampling), \autoref{sec:res_semantic} addresses RQ3 (semantic structure), and \autoref{sec:res_stage2} addresses RQ4 (generation and completion). Where the large-scale model is still training at the time of writing, we state the experimental design and the qualitative findings that are already established, and leave clearly marked space for the final quantitative numbers. Tables whose cells read ``--'' are placeholders to be filled from the final logs; their structure and captions fix what each result will report.
 
-\section{Table and Figures}
-        \begin{table}[h] % h for Here, t for Top, b for Bottom
-                \centering
-                \caption{By convention, Table caption goes on top.}
-                \begin{tabular}{lcr}
-                        \textbf{Left} & \textbf{center} & \textbf{right} \\
-                        \hline
-                        111 & 222 & 333 \\
-                        444 & 555 & 666
-                \end{tabular}
-        \end{table}
+\paragraph{A note on the reported numbers.} The small-scale disentanglement and semantic-structure numbers in \autoref{sec:res_semantic} are taken from our exploratory experiments and are included to show the structure of the analysis; they should be re-confirmed against the final experiment logs before submission. The large-scale reconstruction, fidelity, and Stage 2 numbers are left as placeholders.
 
-        \begin{figure}[h]
-                \centering
-                \includegraphics[width=0.5\linewidth]{example-image}
-                \caption[Example figure]{Example figure. Notice that the caption goes below and that there is a way to have a shorter caption for the list of Figures.}
-        \end{figure}
+% =====================================================================
+\section{Scaling and Reconstruction (RQ1)}
+\label{sec:res_scaling}
+% =====================================================================
 
-        \begin{figure*}[b]
-                \centering
-                \includegraphics[width=0.8\linewidth, height=.2\textheight]{example-image}
-                \caption{Example figure spanning the two columns.}
-        \end{figure*}
+\paragraph{Small scale converges; naive scaling does not.} With the inherited encoder and decoder, a small training set on the order of a few hundred scenes converges well: reconstruction error falls smoothly and the model generalizes to held-out scenes, reproducing the regime in which Can3Tok was validated \citep{gao2025can3tok}. When we scaled the training set to several thousand heterogeneous scenes, the same configuration failed to converge to a comparable reconstruction, which is the central empirical problem of this thesis and the motivation for the encoder, decoder, objective, and data-pipeline changes of \autoref{sec:methodology}. \autoref{tab:scaling} reports the reconstruction of the final large-scale model against the small-scale reference and an inherited-architecture baseline that we are training for comparison.
+
+\begin{table}[h]
+  \centering
+  \caption[Stage 1 reconstruction at scale]{\textbf{Stage 1 reconstruction.} Held-out reconstruction error and render fidelity for the small-scale reference, the inherited-architecture baseline trained at scale, and our final model. Lower is better for error and LPIPS; higher is better for PSNR and SSIM. \emph{[TODO: fill from final logs.]}}
+  \label{tab:scaling}
+  \begin{tabular}{lccccc}
+    \textbf{Model} & \textbf{Pos} $\downarrow$ & \textbf{Cov} $\downarrow$ & \textbf{PSNR} $\uparrow$ & \textbf{SSIM} $\uparrow$ & \textbf{LPIPS} $\downarrow$ \\
+    \hline
+    Small scale (ref.)            & -- & -- & -- & -- & -- \\
+    Inherited arch., at scale     & -- & -- & -- & -- & -- \\
+    Ours (structured + local)     & -- & -- & -- & -- & -- \\
+  \end{tabular}
+\end{table}
+
+\paragraph{Reconstruction quality of the final model.} \autoref{fig:recon} shows qualitative reconstructions of held-out scenes by the final model, alongside the ground-truth renders, to be inserted once training completes.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.92\linewidth]{example-image}
+  \caption[Qualitative reconstruction]{\textbf{Qualitative reconstruction.} Ground-truth (top) and reconstructed (bottom) renders of held-out scenes from the final model. \emph{[FIGURE TODO: insert paired ground-truth/reconstruction renders exported from the reconstruction PLYs.]}}
+  \label{fig:recon}
+\end{figure}
+
+% =====================================================================
+\section{Identifiability, Ordering, and Sampling (RQ2)}
+\label{sec:res_identifiability}
+% =====================================================================
+
+This section isolates the factors that we argue are responsible for the scaling behaviour: the serialization order, the number of primitives sampled, and the locality of the encoder.
+
+\paragraph{Serialization order.} Replacing the opacity rank with a space-filling-curve order makes the element-wise reconstruction target spatially stable and is, in our experience, the single change that most improved large-scale convergence, consistent with the locality argument for the Hilbert curve over the Z-order curve \citep{wu2024ptv3}. We note, however, that ordering alone improved convergence but did not by itself close the gap to small-scale quality, which is why it is necessary but not sufficient and is combined with the sampling and locality changes below. \autoref{tab:ordering} reports the ablation over no ordering, Z-order, and Hilbert order.
+
+\begin{table}[h]
+  \centering
+  \caption[Effect of serialization order]{\textbf{Serialization order.} Reconstruction error under opacity rank (no spatial order), Z-order (Morton), and Hilbert order, all else equal. \emph{[TODO: fill from logs. Expected trend: Hilbert $<$ Morton $<$ opacity in error.]}}
+  \label{tab:ordering}
+  \begin{tabular}{lcc}
+    \textbf{Order} & \textbf{Recon error} $\downarrow$ & \textbf{Gen. gap} $\rightarrow 1$ \\
+    \hline
+    Opacity rank (none) & -- & -- \\
+    Z-order (Morton)    & -- & -- \\
+    Hilbert             & -- & -- \\
+  \end{tabular}
+\end{table}
+
+\paragraph{Number of sampled primitives.} We find that, with pre-fitted and frozen splats, sampling a smaller budget of primitives (on the order of $10$k) converges markedly better than a larger budget (on the order of $40$k), the opposite of what the larger budget achieves in the original setting where the splats are jointly optimized during sampling \citep{gao2025can3tok}. We read this as a consequence of the within-block placement gauge: a larger budget packs more primitives per latent token, increasing the nuisance that the token must encode. \autoref{tab:sampling} reports the ablation.
+
+\begin{table}[h]
+  \centering
+  \caption[Effect of the number of sampled primitives]{\textbf{Sampling budget.} Reconstruction error as a function of the number of primitives sampled per scene, with frozen splats. \emph{[TODO: fill from the $10$k and $40$k training runs.]}}
+  \label{tab:sampling}
+  \begin{tabular}{lcc}
+    \textbf{Primitives per scene} & \textbf{Recon error} $\downarrow$ & \textbf{Converged?} \\
+    \hline
+    $\sim 10$k & -- & -- \\
+    $\sim 40$k & -- & -- \\
+  \end{tabular}
+\end{table}
+
+\paragraph{Locality of the encoder and the generalization gap.} The change that, in our experiments, most directly closed the train-to-test generalization gap at scale was replacing the globally-mixed bottleneck with the spatially local per-token encoder of \autoref{sec:method_local}. With the global encoder the held-out error substantially exceeded the training error (a gap on the order of five to eight times); with the structured local encoder the gap closed to approximately unity, indicating that the latent had become compositional rather than a memorized global code. \autoref{tab:encoder} reports the ablation between the global and local encoders, including the window-scope control.
+
+\begin{table}[h]
+  \centering
+  \caption[Global versus local encoder]{\textbf{Encoder locality and generalization.} Training error, held-out error, and their ratio for the global encoder and the spatially local encoder. A ratio near one indicates no overfitting. \emph{[TODO: fill from logs. Established qualitative finding: gap $\approx 5$--$8\times$ (global) $\rightarrow \approx 1\times$ (local).]}}
+  \label{tab:encoder}
+  \begin{tabular}{lccc}
+    \textbf{Encoder} & \textbf{Train} $\downarrow$ & \textbf{Held-out} $\downarrow$ & \textbf{Gap} $\rightarrow 1$ \\
+    \hline
+    Global bottleneck      & -- & -- & $\sim 5$--$8\times$ \\
+    Local (window $\omega$) & -- & -- & $\sim 1\times$ \\
+  \end{tabular}
+\end{table}
+
+\paragraph{Objective.} The gauge-invariant covariance loss and the permutation-invariant set loss are evaluated by the gauge-invariant covariance error and by the colour and orientation fidelity of reconstructions, since the raw quaternion error is gauge-blind and cannot register their effect. \autoref{tab:objective} reports the ablation.
+
+\begin{table}[h]
+  \centering
+  \caption[Effect of the reconstruction objective]{\textbf{Reconstruction objective.} Gauge-invariant covariance error and colour fidelity under the element-wise objective, the gauge-invariant covariance objective, and the permutation-invariant set objective. \emph{[TODO: fill from logs.]}}
+  \label{tab:objective}
+  \begin{tabular}{lcc}
+    \textbf{Objective} & \textbf{Cov. error} $\downarrow$ & \textbf{Colour fidelity} $\uparrow$ \\
+    \hline
+    Element-wise ($L_2$)        & -- & -- \\
+    + gauge-invariant covariance & -- & -- \\
+    + permutation-invariant set  & -- & -- \\
+  \end{tabular}
+\end{table}
+
+% =====================================================================
+\section{Semantic Structure (RQ3)}
+\label{sec:res_semantic}
+% =====================================================================
+
+\paragraph{Per-primitive semantic clustering.} The per-primitive contrastive objective organizes the per-primitive feature space so that primitives of the same category cluster together. \autoref{fig:pca} shows principal-component projections of the per-primitive features, in which object regions emerge as coherently coloured clusters, which is the qualitative evidence that the latent carries semantic structure rather than only geometry. These visualizations were already obtained in the small-scale experiments and will be regenerated for the final model.
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=0.95\linewidth, height=0.24\textheight]{example-image}
+  \caption[Semantic feature visualization]{\textbf{Per-primitive semantic structure.} Principal-component projection of the per-primitive contrastive features, coloured by the leading components, for several scenes. Coherent regions correspond to object categories. \emph{[FIGURE TODO: insert the PCA feature PLY renders. Source: the semantic-feature and z\_s visualizations.]}}
+  \label{fig:pca}
+\end{figure*}
+
+\paragraph{Colour via the global shape embedding.} Routing the per-scene mean colour through a head on the global shape embedding, and decoding colour as a residual about it, improved colour fidelity in the small-scale experiments by separating the coarse colour statistic (carried globally) from the fine per-primitive variation (decoded locally). This is reflected in the colour-fidelity column of \autoref{tab:objective} and in the qualitative reconstructions.
+
+\paragraph{Disentanglement and latent structure.} In the small-scale regime we measured the effect of the disentangled latent and its objectives on (i) category clustering in the layout subspace, (ii) the degree to which swapping the layout subspace across scenes leaves geometry intact (a measure of disentanglement), and (iii) the stability of the layout code under partial observation (a proxy for completion readiness). \autoref{tab:disentangle} reproduces these exploratory results; they indicate that the disentanglement objectives produced a real separation (swapping the layout subspace disrupted geometry far less than a cross-scene baseline) and that a deterministic layout code was the most stable under partial observation. These numbers are from the exploratory phase and are to be confirmed.
+
+\begin{table*}[t]
+  \centering
+  \caption[Small-scale disentanglement and conditioning ablation]{\textbf{Small-scale latent-structure ablation (exploratory, to be confirmed).} Layout-subspace category clustering (higher is better), geometry disruption under a cross-scene layout swap as a fraction of the cross-scene baseline (lower indicates better disentanglement), layout-code stability under a partial observation (higher is better), and fraction of prior samples decoding to valid geometry. Reproduced from the exploratory experiment notes. \emph{[TODO: confirm against final logs; extend to the large-scale model.]}}
+  \label{tab:disentangle}
+  \begin{tabular}{lcccc}
+    \textbf{Variant} & \textbf{Layout clustering} $\uparrow$ & \textbf{Swap disruption} $\downarrow$ & \textbf{Partial-obs.\ stability} $\uparrow$ & \textbf{Valid \%} $\uparrow$ \\
+    \hline
+    Baseline (undifferentiated)        & 1.05 & 6.5\%  & --    & 100\% \\
+    Disentangled                        & 0.99 & 0.27\% & 0.26  & 94\%  \\
+    Disentangled + structured split     & 0.97 & 0.23\% & 0.20  & 81\%  \\
+    + per-primitive contrastive          & 0.98 & 0.08\% & 0.37  & 95\%  \\
+    Cross-attention conditioning         & 1.24 & 0.34\% & 0.76  & 97\%  \\
+  \end{tabular}
+\end{table*}
+
+\paragraph{Semantic feature quality.} \autoref{tab:semquality} reports clustering and linear-probe measures of the per-primitive feature space for the contrastive variants, again from the exploratory phase. They show modest but real separability of categories in the learned features, which the principal-component visualizations corroborate.
+
+\begin{table}[h]
+  \centering
+  \caption[Semantic feature quality]{\textbf{Per-primitive feature quality (exploratory, to be confirmed).} Between/within-class separation and linear-probe accuracy of the per-primitive features. \emph{[TODO: confirm; recompute for the final model.]}}
+  \label{tab:semquality}
+  \begin{tabular}{lcc}
+    \textbf{Measure} & \textbf{Contrastive} & \textbf{Contrastive + pooled} \\
+    \hline
+    Between/within separation $\uparrow$ & 0.44 & 0.41 \\
+    Linear-probe accuracy $\uparrow$     & 26.0\% & 26.1\% \\
+  \end{tabular}
+\end{table}
+
+% =====================================================================
+\section{Generation and Completion (RQ4)}
+\label{sec:res_stage2}
+% =====================================================================
+
+\paragraph{Generation.} \autoref{fig:generation} will show unconditional and conditional scene generations from the Stage 2 model decoded by the frozen Stage 1 decoder, with generation-quality and fidelity metrics in \autoref{tab:stage2}.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.92\linewidth]{example-image}
+  \caption[Scene generation]{\textbf{Stage 2 scene generation.} Scenes sampled from the latent flow-matching model and decoded by the frozen Stage 1 decoder. \emph{[FIGURE TODO: insert generated-scene renders once Stage 2 is trained.]}}
+  \label{fig:generation}
+\end{figure}
+
+\begin{table}[h]
+  \centering
+  \caption[Stage 2 generation and completion metrics]{\textbf{Stage 2 metrics.} Generation quality and, for completion, reconstruction fidelity against held-out full scenes from partial observations. \emph{[TODO: fill once Stage 2 is trained. Completion is left as future work; see \autoref{sec:discussion}.]}}
+  \label{tab:stage2}
+  \begin{tabular}{lccc}
+    \textbf{Task} & \textbf{Quality} $\uparrow$ & \textbf{Fidelity} $\uparrow$ & \textbf{Coverage} \\
+    \hline
+    Unconditional generation & -- & -- & -- \\
+    Conditional generation   & -- & -- & -- \\
+    Scene completion         & -- & -- & -- \\
+  \end{tabular}
+\end{table}
+
+\paragraph{Completion.} As stated in \autoref{sec:method_stage2} and discussed in \autoref{sec:discussion}, scene completion is specified and set up but not brought to a finished, evaluated result, because the effort available was absorbed by the Stage 1 scaling problem. \autoref{fig:completion} is reserved for completion results.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.92\linewidth]{example-image}
+  \caption[Scene completion]{\textbf{Scene completion (reserved).} Partial input scan, completion, and ground truth. \emph{[FIGURE TODO / FUTURE WORK: insert if completion is brought to a result.]}}
+  \label{fig:completion}
+\end{figure}

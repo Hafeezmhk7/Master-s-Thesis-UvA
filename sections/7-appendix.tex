@@ -1,18 +1,47 @@
 % You can choose whether you prefer a single or double column appendix.
-% Whatever you choose, you will need to stick to it throughout the appendix.
 % \onecolumn
 
-\chapter{First Appendix}
+\chapter{Implementation Details}
 \label{sec:apx:first_appendix}
 
-Put your appendices here. Remember that a work and thesis should be readable and understandable \emph{even without} reading the Appendix. Treat it as a ``if you want to know more, read this'' part.
+This appendix records the architecture, the training configuration, the data, the gauge-invariant objective, and the evaluation metrics in enough detail to reproduce the experiments. As stated in \autoref{sec:methodology}, the thesis is intended to be readable without it.
 
-\section{Appendix section}
-        \subsection{Appendix subsection}
-                \subsubsection{Appendix subsubsection}
-                        \paragraph{Appendix paragraph} Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod
-                        tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam,
-                        quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo
-                        consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse
-                        cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non
-                        proident, sunt in culpa qui officia deserunt mollit anim id est laborum.
+% ---------------------------------------------------------------------
+\section{Model Architecture and Dimensions}
+% ---------------------------------------------------------------------
+
+The encoder is a cross-attention Perceiver. A set of learned query tokens cross-attends to the input Gaussian set and is followed by self-attention; one query summarizes the scene globally and the remaining queries carry per-region geometry. The transformer width is $384$, with $12$ attention heads, $6$ encoder self-attention layers, and $12$ decoder layers, and the Fourier position embedding uses $8$ frequency bands. The latent has $512$ tokens of dimension $32$, so the latent carries $512 \times 32$ values; the per-token dimension is the capacity knob, with the token count pinned to the number of Hilbert blocks.
+
+In the structured, spatially local configuration used for the large-scale model, the encoder is windowed: each geometry query attends only to a local window of Hilbert blocks around its own block (a half-width of one block in the reported run), with a single global query attending to all primitives, so that latent token $k$ encodes the local geometry of block $k$. The decoder is token-local: a shared per-token network decodes each token's slice of the primitives, replacing the flat decoder that otherwise dominates the parameter count. Position is decoded anchor-relative in the spirit of Scaffold-GS \citep{lu2024scaffold}: each primitive's position is an anchor (the per-block centroid) plus a bounded local offset, with the bound a single learnable global scale initialized at $2.0$. A Fourier decoder position embedding over a fixed scaffold grid is added to the decoder tokens. The latent-disentanglement and cross-attention conditioning variants of \autoref{sec:method_latent} share this encoder and differ only in how the latent is split and how the decoder is conditioned.
+
+% ---------------------------------------------------------------------
+\section{Training Configuration}
+% ---------------------------------------------------------------------
+
+The large-scale model is trained on four H100 GPUs in \texttt{bfloat16} mixed precision with distributed data parallelism. The batch size is $64$ per GPU. Optimization uses AdamW with a learning rate of $10^{-4}$, weight decay $10^{-2}$, a linear warmup of $300$ steps, and a cosine schedule with warm restarts. The KL weight is fixed at $10^{-5}$, deliberately small so that the latent is lightly regularized and the second-stage generator can model its distribution. The reconstruction objective in the reported run combines the permutation-invariant set loss (entropic optimal transport with a regularization of $0.05$ and $50$ iterations, with unit position and opacity weights) with the gauge-invariant covariance term (the co-diagonalization Bures surrogate, with a small isotropic regularizer, fifteen Newton-Schulz iterations, and a shape weight of $5.0$). Colour is decoded as a residual about a per-scene mean predicted from the global embedding, with a mean-colour weight of $0.5$ and a colour weight of $2.0$. The per-primitive contrastive objective uses the hidden-feature variant with a weight of $0.4$, a temperature of $0.10$, and a balanced subsample of primitives per scene. The Gaussian set is serialized along a fixed-frame Hilbert curve over the canonical radius, and primitives are selected by opacity rank. The sampling-budget ablation of \autoref{tab:sampling} varies the number of sampled primitives between roughly $10$k and $40$k with all else fixed.
+
+Each Gaussian is represented by fourteen values: a three-dimensional position, a three-dimensional colour (a residual when the colour-residual decomposition is used), a scalar opacity, a three-dimensional scale, and a four-dimensional quaternion in $(w, x, y, z)$ order. Scale is decoded in linear space, which the covariance objective requires in order to assemble $\Sigma = R\,\mathrm{diag}(s^2)\,R^\top$.
+
+% ---------------------------------------------------------------------
+\section{Data and Preprocessing}
+% ---------------------------------------------------------------------
+
+Training uses SceneSplat-7K \citep{li2025scenesplat}. The main set is a collection of indoor chunks expressed in a global per-scene coordinate frame, obtained by combining all chunks of a scene to compute one normalization factor so that all chunks of a room share a coordinate system. Additional full scenes from several indoor sources are added, each normalized per scene to the same canonical radius; per-primitive semantic labels are present only on the chunk subset, so the semantic objective is active there and disabled on the additional sources, which avoids a cross-source label-taxonomy collision. Validation uses held-out full scenes for the primary metric and a disjoint set of held-out chunks for the distribution-gap diagnostic; the chunk split is constructed so that the training and held-out chunks never overlap.
+
+Positions are normalized into a canonical sphere of fixed radius. Colours are scaled to the unit interval and, when the residual decomposition is used, the per-scene mean is subtracted. A fixed budget of primitives is selected per scene by opacity, then reordered along the Hilbert curve so that array index corresponds to a spatially stable location, which is what makes the slot-aligned reconstruction target learnable.
+
+% ---------------------------------------------------------------------
+\section{Gauge-Invariant Covariance Objective}
+% ---------------------------------------------------------------------
+
+The covariance objective compares the Gaussians through their covariance matrices rather than through the raw scale and quaternion, which removes the unlearnable orientation gauge described in \autoref{sec:method_overview}. For a predicted Gaussian with covariance $\Sigma_p$ and a target with covariance $\Sigma_t$, the shape discrepancy is the squared Bures distance
+\begin{equation}
+  d_{\mathrm{B}}^2(\Sigma_p, \Sigma_t) = \mathrm{tr}\!\left(\Sigma_p + \Sigma_t - 2\big(\Sigma_t^{1/2}\Sigma_p\,\Sigma_t^{1/2}\big)^{1/2}\right),
+\end{equation}
+which is the squared 2-Wasserstein distance between zero-mean Gaussians \citep{villani2009ot}. In practice we use the stable co-diagonalization surrogate $\lVert \Sigma_p^{1/2} - \Sigma_t^{1/2}\rVert_F^2$, which equals the Bures distance when the two covariances commute and is cheaper and better conditioned at coincident eigenvalues. Symmetric positive-definite square roots are computed by a trace-normalized Newton-Schulz iteration, which is differentiable and stable even at degenerate eigenvalues, with all covariance arithmetic carried out in single precision. The permutation-invariant set loss folds the same covariance square root into a per-primitive feature, so that a single Euclidean distance in feature space equals the weighted sum of the position, colour, opacity, and Bures-shape costs, and the within-block assignment is then solved by entropic optimal transport \citep{cuturi2013sinkhorn} before the matched pairs are scored.
+
+% ---------------------------------------------------------------------
+\section{Evaluation Metrics}
+% ---------------------------------------------------------------------
+
+Reconstruction is reported as the parameter-space error, both as an aggregate and broken down by attribute, using the same reduction in training and validation so that the two are on the same scale. Because the raw quaternion error is blind to the orientation gauge, orientation and shape are additionally reported through a gauge-invariant covariance error, namely the mean per-primitive Bures and log-Euclidean distance between predicted and target covariances, together with the mean anisotropy of the target Gaussians, which indicates how much orientation is even constrained. Render fidelity is reported with peak signal-to-noise ratio, structural similarity \citep{wang2004ssim}, and the learned perceptual metric LPIPS \citep{zhang2018lpips} on images rendered from the predicted and ground-truth Gaussians. Generalization is monitored by the ratio of held-out to in-distribution error, where a ratio near one indicates no overfitting. Semantic structure is assessed qualitatively by principal-component visualizations of the per-primitive features and quantitatively by between-class versus within-class separation and a linear probe.
