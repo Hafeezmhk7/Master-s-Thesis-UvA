@@ -1,20 +1,55 @@
 \chapter{List of Symbols}
-        This list of notation can help the reader decipher the thesis:
 
-        \begin{align*}
-                \mathbb R_+&, \mathbb R_+^*, \mathbb R_-^* & \text{set of real numbers $\geq 0, >0, <0$, respectively;} \\
-                a & \in \mathbb R & \text{scalar containing the value of the Answer.}
-        \end{align*}
+The following notation is used throughout the thesis.
 
+\begin{table}[h]
+  \centering
+  \begin{tabular}{ll}
+    $\mathcal{G} = \{g_i\}_{i=1}^{N}$ & a scene as a set of $N$ Gaussian primitives \\
+    $g_i = (\mu_i, c_i, \alpha_i, s_i, q_i)$ & a single Gaussian primitive \\
+    $\mu_i \in \mathbb{R}^3$ & primitive position \\
+    $c_i \in \mathbb{R}^3$ & primitive (diffuse) colour \\
+    $\alpha_i \in (0,1)$ & primitive opacity \\
+    $s_i \in \mathbb{R}^3_{+}$ & primitive per-axis scale \\
+    $q_i \in \mathbb{S}^3$ & primitive orientation (unit quaternion) \\
+    $\Sigma_i = R(q_i)\,\mathrm{diag}(s_i^2)\,R(q_i)^\top$ & primitive covariance \\
+    $R(q)$ & rotation matrix of a quaternion $q$ \\
+    $N$ & number of primitives sampled per scene \\
+    $E_\phi,\ D_\theta$ & encoder and decoder \\
+    $Z \in \mathbb{R}^{T \times d}$ & latent of $T$ tokens of width $d$ \\
+    $z_s,\ z_g$ & layout (semantic) and geometry latent subspaces \\
+    $\beta$ & weight of the KL regulariser \\
+    $K$ & number of Hilbert blocks (and geometry tokens) \\
+    $g = \lceil N/K \rceil$ & primitives per block \\
+    $\omega$ & half-width of the local encoder window (in blocks) \\
+    $a_{\tau(i)}$ & anchor of the token $\tau(i)$ owning primitive $i$ \\
+    $o_i,\ \rho$ & raw position offset and learnable offset scale \\
+    $d_{\mathrm{B}}(\cdot,\cdot)$ & Bures (2-Wasserstein) distance between covariances \\
+  \end{tabular}
+\end{table}
 
 \chapter{List of Abbreviations}
-        A list of acronyms could similarly be defined
-        \begin{table}[h]
-                \centering
-                \begin{tabular}{cl}
-                                CNN & Convolutional neural network \\
-                                CPU & Central processing unit \\
-                                SBU & System Billing Unit \\
-                                SGD & Student Gradient Descent
-                \end{tabular}
-        \end{table}
+
+\begin{table}[h]
+  \centering
+  \begin{tabular}{ll}
+    3DGS  & 3D Gaussian Splatting \\
+    NeRF  & Neural Radiance Field \\
+    VAE   & Variational Autoencoder \\
+    ELBO  & Evidence Lower Bound \\
+    KL    & Kullback--Leibler (divergence) \\
+    SH    & Spherical Harmonics \\
+    DiT   & Diffusion Transformer \\
+    RoPE  & Rotary Position Embedding \\
+    APE   & Absolute Position Embedding \\
+    MLP   & Multilayer Perceptron \\
+    FPS   & Farthest-Point Sampling \\
+    OT    & Optimal Transport \\
+    InfoNCE & Information Noise-Contrastive Estimation \\
+    PCA   & Principal Component Analysis \\
+    SSC   & Semantic Scene Completion \\
+    PSNR  & Peak Signal-to-Noise Ratio \\
+    SSIM  & Structural Similarity Index \\
+    LPIPS & Learned Perceptual Image Patch Similarity \\
+  \end{tabular}
+\end{table}
