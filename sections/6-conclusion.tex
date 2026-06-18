@@ -1,49 +1,34 @@
 \chapter{Conclusion}
 \label{chap:conclusion}
 
-This thesis studied what it takes to scale a scene-level 3D Gaussian
-Splatting variational autoencoder from a few hundred scenes to several
-thousand, and whether the resulting latent can carry semantic structure.
+This thesis asked what it takes to scale a scene-level 3D Gaussian Splatting variational autoencoder from a few hundred training scenes (the regime of Can3Tok \citep{gao2025can3tok}) to several thousand pre-fitted heterogeneous indoor scenes (the regime made available by SceneSplat-7K \citep{li2025scenesplat}), and what the design implications are for a downstream flow-matching generator. I conclude by returning to the three research questions and listing the next concrete steps.
 
-\paragraph{RQ1 (Ordering and identifiability).}
-Yes, canonical ordering is essential. Without a spatially consistent serial
-order, the slot-aligned reconstruction target changes identity from scene to
-scene and the model cannot converge. A fixed-frame Hilbert serialisation
-provides locality---consecutive slots are always spatially adjacent---making
-the slot-to-position function learnable and consistent across the training
-set. This is the most impactful single change we made.
+%% ──────────────────────────────────────────────────────────────────────────
+\section{Answers to the Research Questions}
+\label{sec:conc_answers}
 
-\paragraph{RQ2 (Architecture and generalisation).}
-Yes, the local encoder is the key architectural change. The globally-pooled
-bottleneck encoder produces latent tokens that are functions of the entire
-scene, which leads to memorisation ($5$--$8\times$ train/held-out gap) at
-scale. The windowed local encoder produces compositional tokens: similar
-local patches activate similar features regardless of which scene they come
-from, closing the generalisation gap to $\approx 1\times$.
+\paragraph{RQ1.} Yes, imposing a canonical spatial order on the Gaussian set restores convergence at scale, but only when paired with a decoder that can use it. A fixed-frame Hilbert serialisation (\S\ref{sec:method_hilbert}) drops validation $\ell_2$ from 99 to 77 with no other change (V1 $\to$ V2). Adding anchor-relative position decoding on top of the ordering drops it further to 45 (V2 $\to$ V3). The ordering and the anchor decomposition together turn an unlearnable slot-aligned objective into a learnable one.
 
-\paragraph{RQ3 (Semantic structure).}
-Yes, at 300 scenes, per-primitive contrastive supervision and latent
-disentanglement produce meaningful semantic structure without degrading
-reconstruction. The cross-reconstruction test reduces geometry disruption
-from a cross-scene $z_s$ swap by $80\times$; the InfoNCE features achieve
-$\approx\!26\%$ linear-probe accuracy over 72 categories. The Strategy-B1
-layout code is especially stable under partial observation (0.761 cosine
-similarity at 40\% coverage), which is the right property for the scene
-completion pipeline.
+\paragraph{RQ2.} Yes, a windowed local encoder plus a shared per-token decoder closes most of the train-to-test gap. The two components are interlocking: the local encoder needs the token-local decoder to consume per-region features cleanly, and the token-local decoder needs the local encoder to feed it the right kind of context. Together, the decoder parameter count drops from about 777M to about 1.6M (a $500\times$ reduction) while validation reconstruction reaches a level comparable to the global-decoder run.
 
-\paragraph{Main takeaway.}
-Scaling a 3DGS autoencoder to thousands of frozen scenes requires solving
-two independent problems in sequence: (1) making the reconstruction target
-identifiable by ordering and (2) making the encoder compositional by
-localisation. These are not minor hyperparameter changes---they fundamentally
-alter what the model can learn. Any future work deploying a 3DGS VAE on
-pre-computed scene reconstructions should account for the frozen-splat regime,
-where optimal sampling budgets differ significantly from the joint-optimisation
-setting.
+\paragraph{RQ3.} Yes, per-Gaussian semantic supervision and a layout/geometry latent split can be added without degrading reconstruction. The 300-scene exploratory study (Strategy~B1 with Pool+pgNCE-style InfoNCE, \S\ref{sec:results_300}) confirms that per-Gaussian features cluster by ScanNet-72 category and that a deterministic layout code is stable under partial-scan masking. At scale, the V6/V7 variants match V3 on reconstruction while producing the split-schema latent that the hierarchical Stage~2 generator (\S\ref{sec:method_stage2}) needs.
 
-\paragraph{Looking ahead.}
-With the Stage-1 ablation converging, the immediate next step is training and
-evaluating the Stage-2 hierarchical generator for unconditional scene
-generation and partial-scan completion. These experiments, together with
-image-space quality metrics on the final Stage-1 checkpoint, will provide the
-full quantitative picture needed for a conference-quality research paper.
+\paragraph{Main question.} The combination of fixed-frame Hilbert serialisation, anchor-relative position decoding, and a local-encoder plus token-local-decoder pair is what scales the Stage~1 VAE from hundreds to several thousand pre-fitted indoor scenes. Each ingredient on its own is insufficient; the three together turn an architecture that fails to converge at scale into one that reconstructs held-out scenes at a useful level with a 500$\times$ smaller decoder. Layered on top, a layout/geometry split with per-Gaussian semantic supervision is a viable schema for the downstream generator.
+
+%% ──────────────────────────────────────────────────────────────────────────
+\section{Future Work}
+\label{sec:conc_future}
+
+The next milestones for the project follow directly from the limitations in \S\ref{sec:disc_limitations}.
+
+\begin{enumerate}
+\item \textbf{Finish Stage~2 end-to-end.} Generate samples from the trained Stage~2 models for variants 5, 6, and 7, render them, and report PSNR, SSIM, and LPIPS against held-out ground truth. The same checkpoints support the completion task: mask 30--80\% of the input Hilbert blocks of a held-out scene and recover the masked regions through Stage~2.
+\item \textbf{Density-uniform input sampling.} Replace the top-opacity ranking of the 40{,}000 input Gaussians with farthest-point sampling on positions, weighted by opacity. This should give a more spatially uniform input distribution and reduce the bias towards opaque furniture surfaces.
+\item \textbf{Rendering-quality evaluation throughout.} Add rendered-image metrics (PSNR/SSIM/LPIPS) on the reconstructed scenes for all seven variants, not just the generative outputs. This gives the perceptual companion metric to the per-primitive $\ell_2$.
+\item \textbf{Unified label space.} Bring ARKitScenes and ScanNet++ under a unified per-Gaussian taxonomy (a multi-taxonomy classification head, with per-dataset masks) so the InfoNCE supervision can be active on the full training corpus.
+\item \textbf{Outdoor scenes.} Test the same architecture on outdoor 3DGS data with a contracted-depth normalisation. The Hilbert serialisation and the anchor scaffold should both generalise, but the canonical extent has to change.
+\item \textbf{Joint-splat ablation.} Re-train one of the Stage~1 variants jointly with the Gaussian fitting at scale and compare to the same variant on the pre-fitted SceneSplat-7K splats. This is the cleanest test of the frozen-splat hypothesis (\S\ref{sec:disc_frozen}).
+\item \textbf{Multiple seeds.} Re-run V3, V5, V6, V7 on at least three seeds each to get variance estimates on the validation $\ell_2$ comparisons.
+\end{enumerate}
+
+The codebase, the SLURM job scripts, the YAML configs for each of the seven variants, and the Stage~2 model code are available at \repo. The Stage~1 checkpoints used to produce Table~\ref{tab:7_summary} are released alongside, so the next person can pick up directly from the Stage~2 milestone without retraining.

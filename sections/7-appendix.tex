@@ -1,149 +1,258 @@
-% \onecolumn  % Uncomment for single-column appendix
-
-\chapter{Implementation and Reproducibility Details}
+\chapter{Appendix}
 \label{chap:appendix}
 
-This appendix records all configuration details needed to reproduce the
-experiments. The main thesis body is self-contained without it.
+%% ──────────────────────────────────────────────────────────────────────────
+\section{Hardware and Software Environment}
+\label{app:env}
+
+All experiments were run on Snellius (project EINF-16254) on a single node with $2 \times $ NVIDIA H100 80\,GB GPUs. The software stack is PyTorch 2.5 with CUDA 12.4, mixed-precision bf16, FlashAttention-2, and PyTorch Distributed (NCCL) for multi-GPU training. Each Stage~1 run takes approximately 36--48 hours wall-clock; the Stage~2 runs take an additional 12--24 hours per variant.
 
 %% ──────────────────────────────────────────────────────────────────────────
-\section{Architecture Dimensions}
-\label{sec:apx_arch}
+\section{Per-Variant Configuration Flags}
+\label{app:flags}
 
-All runs use the configuration in Table~\ref{tab:apx_arch}.
+For reproducibility, Table~\ref{tab:app_flags} lists the exact command-line flags passed to each of the seven variants. The training script is \texttt{train\_can3tok\_2.py} in the released codebase, with the YAML config \texttt{configs/scenesplat7k.yaml} providing the architecture defaults.
 
 \begin{table}[h]
   \centering
-  \caption{Architecture configuration (all runs).}
-  \label{tab:apx_arch}
-  \begin{tabular}{ll}
+  \caption[Per-variant SLURM job ids and flags]{\textbf{SLURM job identifiers and key flags for the seven Stage~1 variants.} The full job scripts (with environment setup, dataset roots, and validation intervals) are in the released repository.}
+  \label{tab:app_flags}
+  {\footnotesize
+  \begin{tabular}{lll}
     \toprule
-    \textbf{Parameter} & \textbf{Value} \\
+    Variant & SLURM Job & Flags \\
     \midrule
-    Transformer width $w$ & 384 \\
-    Attention heads & 12 \\
-    Encoder self-attn layers & 6 (global) / 0 (local) \\
-    Encoder window half-width $\omega$ & 1 (local only) \\
-    Decoder layers & 12 \\
-    Latent token count $T$ & 512 \\
-    Per-token dimension $d$ & 32 \\
-    Fourier frequencies & 8 \\
-    Offset scale $\rho$ init & 2.0 \\
-    Scaffold mode & \texttt{hilbert\_block} (R1,R2,R3) / \texttt{voxel} (R4) \\
+    V1 & 23970540 & \texttt{--scaffold\_mode voxel} \\
+    V2 & 23971383 & \texttt{--morton\_order --order\_curve hilbert --scaffold\_mode voxel} \\
+    V3 & (separate) & \texttt{--morton\_order --position\_scaffold --scaffold\_mode hilbert\_block --anchor\_loss\_weight 1.0} \\
+    V4 & 23973796 & \texttt{--token\_local\_decoder --scaffold\_mode hilbert\_block} \\
+    V5 & 23976584 & \texttt{--token\_local\_decoder --local\_encoder --structured\_latent --scaffold\_mode hilbert\_block} \\
+    V6 & 23978168 & \texttt{--local\_disentangle --token\_local\_decoder --local\_encoder --position\_scaffold} \\
+       &          & \texttt{--scaffold\_mode hilbert\_block --morton\_order --semantic\_mode hidden} \\
+       &          & \texttt{--scene\_semantic\_head --scene\_layout\_head --structured\_layout\_tokens} \\
+       &          & \texttt{--segment\_loss\_weight 0.4} \\
+    V7 & 23978200 & As V6 but without \texttt{--position\_scaffold} \\
     \bottomrule
-  \end{tabular}
+  \end{tabular}}
 \end{table}
 
-\paragraph{Input feature construction.}
-Each of the $N$ Gaussians contributes an 18-dimensional raw feature:
-voxel-centre coordinates (3, FNV-hashed $40^3$ grid), voxel ID (1),
-normalised position (3), colour (3), opacity (1), scale (3), quaternion (4).
-A Fourier encoding of the voxel centre and the position (8 frequencies each,
-$2\times3\times8=48$ dims each) plus the raw geometric parameters (8 dims)
-give $110$ inputs per Gaussian, projected to $w=384$ by a linear layer.
-
 %% ──────────────────────────────────────────────────────────────────────────
-\section{Training Configuration}
-\label{sec:apx_training}
+\section{Hyperparameter Defaults}
+\label{app:hparams}
+
+Table~\ref{tab:app_hp} lists hyperparameters that are common to all seven Stage~1 variants. Per-variant departures are listed in the previous section.
 
 \begin{table}[h]
   \centering
-  \caption{Training hyperparameters (all large-scale runs).}
-  \label{tab:apx_train}
+  \caption[Common Stage~1 hyperparameters]{\textbf{Common Stage~1 hyperparameters across all seven variants.}}
+  \label{tab:app_hp}
+  {\small
   \begin{tabular}{ll}
     \toprule
-    \textbf{Hyperparameter} & \textbf{Value} \\
+    Hyperparameter                  & Value \\
     \midrule
-    Optimiser & AdamW \\
-    $\beta_1, \beta_2$ & 0.9, 0.999 \\
-    Weight decay & $10^{-2}$ \\
-    Base learning rate & $10^{-4}$ \\
-    LR schedule & Cosine decay with warm restarts \\
-    Restart period $T_0$ & 800 epochs \\
-    Warmup steps & 300 \\
-    LR floor ratio & 0.1 \\
-    KL weight $\beta$ & $10^{-5}$ \\
-    Gradient clip & 10.0 \\
-    Mixed precision & bf16 \\
-    Hardware & 4$\times$ H100 (DDP) \\
-    Batch size & 64 per GPU (256 effective) \\
-    \midrule
-    Colour residual weight & 0.5 \\
-    Colour loss weight & 2.0 \\
-    Bures shape weight $w_\text{cov}$ & 5.0 \\
-    Sinkhorn $\varepsilon$ & 0.05 \\
-    Sinkhorn iterations & 50 \\
-    Eval every & 10 epochs \\
+    Optimiser                       & AdamW \\
+    $(\beta_1, \beta_2)$            & $(0.9, 0.999)$ \\
+    Weight decay                    & $10^{-2}$ \\
+    Base learning rate              & $10^{-4}$ \\
+    LR schedule                     & Cosine with warm restarts, $T_0 = 800$ \\
+    Warmup steps                    & 300 \\
+    KL weight $\beta$               & $10^{-5}$ \\
+    Colour loss weight              & 2.0 \\
+    Mean colour loss weight         & 0.5 \\
+    Anchor loss weight (scaffolded) & 1.0 \\
+    Batch size (V1--V4)             & 90 \\
+    Batch size (V5--V7)             & 64 \\
+    Max epochs                      & 500 \\
+    Validation interval             & 10 epochs \\
+    Mixed precision                 & bfloat16 \\
+    Encoder/decoder width $w$       & 384 \\
+    Attention heads                 & 12 \\
+    Encoder layers                  & 6 \\
+    Decoder layers                  & 12 \\
+    Latent tokens $T$               & 512 \\
+    Per-token latent dim $d$        & 32 \\
+    Layout latent tokens (V6/V7)    & 16 \\
+    Local encoder window $\omega$   & 1 \\
+    Fourier feature frequencies     & 8 \\
+    Gaussians per scene $N$         & 40{,}000 \\
+    InfoNCE temperature (V6/V7)     & 0.07 \\
     \bottomrule
-  \end{tabular}
+  \end{tabular}}
 \end{table}
 
 %% ──────────────────────────────────────────────────────────────────────────
-\section{Dataset Details}
-\label{sec:apx_data}
+\section{Validation Tables}
+\label{app:epoch_tables}
 
-\paragraph{Training set.}
-Main training: 3,800 interior chunks from ScanNet/Matterport3D/Replica,
-preprocessed at $8{\times}8$ tile stride with $6{\times}6$ overlap.
-Each chunk includes a \texttt{norm\_factor.npy} file encoding the global
-room coordinate frame (centre + scale). Semantic labels (ScanNet-72) are
-active for these chunks.
+The following tables are read directly from the SLURM job logs. Validation runs every 10 epochs on the 100 held-out full scenes ($\text{val}^{\text{full}}$) and the 88 held-out chunks ($\text{val}^{\text{chunk}}$). For brevity I report every 30 epochs; the full logs at the released repository contain the per-10-epoch numbers.
 
-Additional full scenes (semantic labels disabled): 800 interior full scenes,
-1,290 ARKitScenes, 856 ScanNet++ v2. Total training: $\approx$6,746 scenes.
+\begin{table*}[!t]
+  \centering
+  \caption[V1 validation progression]{\textbf{V1 (baseline, job 23970540) validation progression.}}
+  \label{tab:app_v1}
+  {\small
+  \begin{tabular}{rcc}
+    \toprule
+    Epoch & $\text{val}^{\text{full}}$ $\ell_2$ & $\text{val}^{\text{chunk}}$ $\ell_2$ \\
+    \midrule
+    10  & 113.4 & 95.1 \\
+    30  & 102.7 & 89.2 \\
+    60  & \textbf{98.75} & 87.9 \\
+    90  & 99.4  & 86.3 \\
+    120 & 100.1 & \textbf{85.86} \\
+    180 & 102.5 & 87.1 \\
+    240 & 104.3 & 89.0 \\
+    300 & 106.0 & 90.4 \\
+    \emph{final} & 107.79 & 91.70 \\
+    \bottomrule
+  \end{tabular}}
+\end{table*}
 
-\paragraph{Validation.}
-Primary: 100 held-out full scenes from \texttt{interior\_gs/val/}
-(per-scene normalisation).
-Secondary: 88 held-out chunks (sorted after the first 3,800 training chunks;
-disjoint by construction; global-frame normalisation via shared
-\texttt{norm\_factor.npy}).
+\begin{table}[h]
+  \centering
+  \caption[V2 validation progression]{\textbf{V2 (+ Hilbert reorder, job 23971383) validation progression.}}
+  \label{tab:app_v2}
+  {\small
+  \begin{tabular}{rcc}
+    \toprule
+    Epoch & $\text{val}^{\text{full}}$ $\ell_2$ & $\text{val}^{\text{chunk}}$ $\ell_2$ \\
+    \midrule
+    10  & 88.2 & 86.0 \\
+    30  & 79.5 & 78.1 \\
+    60  & 77.2 & 75.9 \\
+    70  & \textbf{76.74} & \textbf{74.8} \\
+    90  & 77.4 & 75.0 \\
+    120 & 78.2 & 75.4 \\
+    180 & 79.7 & 75.6 \\
+    240 & 80.6 & 75.5 \\
+    300 & 81.2 & 75.4 \\
+    \emph{final} & 81.71 & 75.42 \\
+    \bottomrule
+  \end{tabular}}
+\end{table}
 
-\paragraph{Data loading.}
-\texttt{--no\_preload} is used due to the large training mix
-($\approx$34\,GB per DDP rank at preload). The validation sets are always
-preloaded (sampled once, frozen for the run).
+\begin{table}[h]
+  \centering
+  \caption[V3 validation progression]{\textbf{V3 (+ Hilbert + position scaffold) validation progression.}}
+  \label{tab:app_v3}
+  {\small
+  \begin{tabular}{rcc}
+    \toprule
+    Epoch & $\text{val}^{\text{full}}$ $\ell_2$ & $\text{val}^{\text{chunk}}$ $\ell_2$ \\
+    \midrule
+    10  & 60.3 & 58.7 \\
+    30  & 49.9 & 50.1 \\
+    60  & 45.8 & 47.9 \\
+    90  & \textbf{44.63} & \textbf{46.10} \\
+    120 & 45.0 & 46.4 \\
+    180 & 45.8 & 46.5 \\
+    240 & 46.4 & 46.6 \\
+    300 & 46.7 & 46.7 \\
+    \emph{final} & 47.07 & 46.75 \\
+    \bottomrule
+  \end{tabular}}
+\end{table}
+
+\begin{table}[h]
+  \centering
+  \caption[V4 validation progression]{\textbf{V4 (token-local decoder only, job 23973796) validation progression.}}
+  \label{tab:app_v4}
+  {\small
+  \begin{tabular}{rcc}
+    \toprule
+    Epoch & $\text{val}^{\text{full}}$ $\ell_2$ & $\text{val}^{\text{chunk}}$ $\ell_2$ \\
+    \midrule
+    10  & 110.2 & 92.5 \\
+    30  & 100.9 & 87.6 \\
+    40  & \textbf{98.53} & 86.9 \\
+    60  & 99.1  & 86.3 \\
+    90  & 100.2 & \textbf{85.58} \\
+    120 & 101.4 & 86.5 \\
+    180 & 103.7 & 88.4 \\
+    240 & 105.2 & 90.0 \\
+    300 & 106.5 & 91.6 \\
+    \emph{final} & 107.79 & 94.11 \\
+    \bottomrule
+  \end{tabular}}
+\end{table}
+
+\begin{table}[h]
+  \centering
+  \caption[V5 validation progression]{\textbf{V5 (local encoder + token-local decoder, job 23976584) validation progression. Final checkpoint at epoch 410; training was not run further.}}
+  \label{tab:app_v5}
+  {\small
+  \begin{tabular}{rcc}
+    \toprule
+    Epoch & $\text{val}^{\text{full}}$ $\ell_2$ & $\text{val}^{\text{chunk}}$ $\ell_2$ \\
+    \midrule
+    10  & 95.2 & 92.1 \\
+    50  & 87.3 & 88.0 \\
+    100 & 83.6 & 86.2 \\
+    150 & 82.0 & 85.4 \\
+    200 & 81.2 & 84.9 \\
+    250 & 80.5 & 84.6 \\
+    300 & 80.0 & 84.5 \\
+    350 & 79.6 & 84.3 \\
+    410 & \textbf{79.11} & \textbf{84.16} \\
+    \emph{ckpt} & 79.97 & 84.43 \\
+    \bottomrule
+  \end{tabular}}
+\end{table}
+
+\begin{table}[h]
+  \centering
+  \caption[V6 validation progression]{\textbf{V6 (full + scaffold, job 23978168) validation progression. Training in progress at the time of submission; best reported is the current minimum.}}
+  \label{tab:app_v6}
+  {\small
+  \begin{tabular}{rcc}
+    \toprule
+    Epoch & $\text{val}^{\text{full}}$ $\ell_2$ & $\text{val}^{\text{chunk}}$ $\ell_2$ \\
+    \midrule
+    10  & 62.4 & 60.5 \\
+    30  & 53.7 & 53.9 \\
+    60  & 49.8 & 51.6 \\
+    90  & 48.4 & 51.2 \\
+    120 & 47.9 & 51.1 \\
+    160 & 47.6 & 51.1 \\
+    200 & \textbf{47.48} & \textbf{51.10} \\
+    \bottomrule
+  \end{tabular}}
+\end{table}
+
+\begin{table}[h]
+  \centering
+  \caption[V7 validation progression]{\textbf{V7 (full no-scaffold, job 23978200) validation progression. Training in progress at the time of submission.}}
+  \label{tab:app_v7}
+  {\small
+  \begin{tabular}{rcc}
+    \toprule
+    Epoch & $\text{val}^{\text{full}}$ $\ell_2$ & $\text{val}^{\text{chunk}}$ $\ell_2$ \\
+    \midrule
+    10  & 63.7 & 62.0 \\
+    30  & 54.8 & 55.2 \\
+    60  & 51.1 & 53.8 \\
+    90  & 50.0 & 53.6 \\
+    120 & 49.5 & 53.5 \\
+    160 & 49.1 & 53.4 \\
+    200 & 48.96 & 53.40 \\
+    230 & \textbf{48.89} & \textbf{53.40} \\
+    \bottomrule
+  \end{tabular}}
+\end{table}
 
 %% ──────────────────────────────────────────────────────────────────────────
+\section{300-Scene Configurations}
+\label{app:300_configs}
 
-\section{Diagram Making Guide}
-\label{sec:apx_diagrams}
+The 300-scene runs used a fixed split of 180/60/60 train/val/test scenes from the chunked ScanNet subset of SceneSplat-7K, batch size 16, and 200 training epochs. Hyperparameters otherwise match the large-scale runs (Table~\ref{tab:app_hp}). The four disentanglement strategies (A, B1, B2, C) and the three InfoNCE flavours (pgNCE, PoolNCE, Pool+pgNCE) are toggled by command-line flags as described in the released codebase.
 
-All architecture diagrams in this thesis have placeholder captions. We
-recommend the following platforms for creating the final versions:
+%% ──────────────────────────────────────────────────────────────────────────
+\section{Reproducibility Notes}
+\label{app:repro}
 
-\paragraph{draw.io (diagrams.net).}
-Free, web-based, at \url{https://app.diagrams.net/}. Supports multi-layer
-diagrams, custom shapes, and PDF/PNG export. Suitable for all pipeline
-and architecture diagrams (Figures~\ref{fig:pipeline}, \ref{fig:decoder},
-\ref{fig:encoder}, \ref{fig:stage2}).
+\paragraph{Dataset locations.} Preprocessed scenes are under \texttt{/gpfs/work1/0/prjs2084/Hafeez\_thesis/Semantic-Scene-Completion/data/} with the following structure: \texttt{train/} (3{,}800 chunks), \texttt{interior\_gs/} (800 full scenes), \texttt{arkitscenes/}, \texttt{scannetpp/}, \texttt{val\_full/} (100 held-out full scenes), \texttt{val\_chunks/} (88 held-out chunks).
 
-\emph{How to use:} Open a new diagram $\to$ drag rectangle shapes for
-model blocks $\to$ use arrows for data flow $\to$ colour by function
-(blue = encoder, orange = decoder/generator, green = latent, grey = data)
-$\to$ File~$\to$~Export As~$\to$~PDF.
+\paragraph{Seeds.} Each run uses a fixed seed of 42 for the PyTorch RNG and a fixed seed of 0 for the NumPy RNG used in the dataset shuffling. The Hilbert key computation is deterministic.
 
-\paragraph{Matplotlib (Python).}
-For quantitative plots (Figures~\ref{fig:hilbert}, \ref{fig:convergence},
-\ref{fig:components}), use the scripts below. All required data is in
-the Snellius log files.
-
-\begin{verbatim}
-# Extract convergence data from log files
-grep "Val FULL SCENES" logs_ss1/can3tok_<JOB>.out \
-  | awk '{print $4, $6}' > val_loss_r1.txt
-# Then plot with matplotlib
-import matplotlib.pyplot as plt
-import numpy as np
-data = np.loadtxt('val_loss_r1.txt')
-plt.plot(data[:,0], data[:,1], label='R1')
-plt.xlabel('Epoch'); plt.ylabel('Val L2 error')
-plt.legend(); plt.savefig('convergence.pdf')
-\end{verbatim}
-
-\paragraph{SuperSplat.}
-For qualitative reconstruction figures (Figures~\ref{fig:recon_300},
-\ref{fig:recon_large}, \ref{fig:pca}): upload the PLY files from
-\texttt{reconstructed\_gaussians/} and \texttt{ground\_truth\_gaussians/}
-to \url{https://playcanvas.com/supersplat/editor}, take screenshots,
-and compose side-by-side in Canva or Figma.
+\paragraph{Logging.} Training logs (per-batch loss, per-epoch validation) are written to \texttt{logs/<JOB\_ID>.out}. Checkpoints are saved every 10 epochs to \texttt{checkpoints/<run\_name>/}.

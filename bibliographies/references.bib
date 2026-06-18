@@ -1,355 +1,208 @@
-%% =====================================================================
-%% references.bib  —  MSc AI Thesis, Hafeez Khan, UvA 2026
-%%
-%% All entries verified against primary sources (arXiv / proceedings).
-%% Entries marked [VERIFY] should be double-checked before submission.
-%% =====================================================================
+% References for "Semantic Scene Completion with Latent Modeling of Scene-Level 3D Gaussians"
+% No optimal-transport / Wasserstein / Bures / Sinkhorn entries; those were never used in the implemented system.
 
-%% ── Direct lineage ──────────────────────────────────────────────────
-
-%% [VERIFIED] ICCV 2025
-@inproceedings{gao2025can3tok,
-  title     = {{Can3Tok}: Canonical {3D} Tokenization and Latent Modeling of
-               Scene-Level {3D} {Gaussians}},
-  author    = {Gao, Quankai and Georgiev, Iliyan and Wang, Tuanfeng Y. and
-               Singh, Krishna Kumar and Neumann, Ulrich and Yoon, Jae Shin},
-  booktitle = {Proceedings of the IEEE/CVF International Conference on
-               Computer Vision (ICCV)},
-  year      = {2025},
+@inproceedings{kerbl2023gaussian,
+  author    = {Kerbl, Bernhard and Kopanas, Georgios and Leimk{\"u}hler, Thomas and Drettakis, George},
+  title     = {{3D} {G}aussian {S}platting for Real-Time Radiance Field Rendering},
+  booktitle = {ACM Transactions on Graphics (Proc. SIGGRAPH)},
+  year      = {2023},
 }
 
-%% [VERIFIED] ICCV 2025 (Oral); arXiv:2503.18052
-@inproceedings{li2025scenesplat,
-  title     = {{SceneSplat}: Gaussian Splatting-based Scene Understanding with
-               Vision-Language Pretraining},
-  author    = {Li, Yue and Ma, Qi and Yang, Runyi and Li, Huayang and
-               Popovic, Nikola and Ren, Bin and Sebe, Nicu and Van Gool, Luc
-               and Gevers, Theo and Oswald, Martin R. and Paudel, Danda Pani},
-  booktitle = {Proceedings of the IEEE/CVF International Conference on
-               Computer Vision (ICCV)},
-  year      = {2025},
-}
-
-%% [VERIFIED] arXiv:2506.08710
-@article{ma2025scenesplatpp,
-  title   = {{SceneSplat++}: A Large Dataset and Comprehensive Benchmark for
-             Language Gaussian Splatting},
-  author  = {Ma, Mengjiao and Ma, Qi and Li, Yue and Cheng, Jiahuan and
-             Yang, Runyi and Ren, Bin and Popovic, Nikola and Wei, Mingqiang
-             and Sebe, Nicu and Van Gool, Luc and Gevers, Theo and
-             Oswald, Martin R. and Paudel, Danda Pani},
-  journal = {arXiv preprint arXiv:2506.08710},
-  year    = {2025},
-}
-
-%% ── 3D Gaussian Splatting ───────────────────────────────────────────
-
-%% [WELL-KNOWN] ACM TOG 42(4), 2023
-@article{kerbl2023gaussian,
-  title   = {{3D} Gaussian Splatting for Real-Time Radiance Field Rendering},
-  author  = {Kerbl, Bernhard and Kopanas, Georgios and
-             Leimk{\"u}hler, Thomas and Drettakis, George},
-  journal = {ACM Transactions on Graphics},
-  volume  = {42},
-  number  = {4},
-  pages   = {1--14},
-  year    = {2023},
-}
-
-%% [WELL-KNOWN] ECCV 2020
 @inproceedings{mildenhall2020nerf,
-  title     = {{NeRF}: Representing Scenes as Neural Radiance Fields for
-               View Synthesis},
-  author    = {Mildenhall, Ben and Srinivasan, Pratul P. and Tancik, Matthew
-               and Barron, Jonathan T. and Ramamoorthi, Ravi and Ng, Ren},
+  author    = {Mildenhall, Ben and Srinivasan, Pratul P. and Tancik, Matthew and Barron, Jonathan T. and Ramamoorthi, Ravi and Ng, Ren},
+  title     = {{NeRF}: Representing Scenes as Neural Radiance Fields for View Synthesis},
   booktitle = {European Conference on Computer Vision (ECCV)},
   year      = {2020},
 }
 
-%% [VERIFIED] CVPR 2024, pp.~20654--20664
-@inproceedings{lu2024scaffold,
-  title     = {{Scaffold-GS}: Structured {3D} {Gaussians} for View-Adaptive
-               Rendering},
-  author    = {Lu, Tao and Yu, Mulin and Xu, Linning and Xiangli, Yuanbo and
-               Wang, Limin and Lin, Dahua and Dai, Bo},
-  booktitle = {Proceedings of the IEEE/CVF Conference on Computer Vision and
-               Pattern Recognition (CVPR)},
-  pages     = {20654--20664},
-  year      = {2024},
-}
-
-%% ── 3D generative modelling ─────────────────────────────────────────
-
-%% [WELL-KNOWN] NeurIPS 2023
-@inproceedings{zhao2023michelangelo,
-  title     = {{Michelangelo}: Conditional {3D} Shape Generation based on
-               Shape-Image-Text Aligned Latent Representation},
-  author    = {Zhao, Zibo and Liu, Wen and Chen, Xin and Zeng, Xianfang and
-               Wang, Rui and Cheng, Pei and Fu, Bin and Chen, Tao and
-               Yu, Gang and Gao, Shenghua},
-  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
-  year      = {2023},
-}
-
-%% [WELL-KNOWN] NeurIPS 2024
-@inproceedings{zhang2024gaussiancube,
-  title     = {{GaussianCube}: A Structured and Explicit Radiance Representation
-               for {3D} Generative Modeling},
-  author    = {Zhang, Bowen and Cheng, Yiji and Yang, Jiaolong and Wang, Chunyu
-               and Zhao, Feng and Tang, Yansong and Chen, Dong and Guo, Baining},
-  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
-  year      = {2024},
-}
-
-%% [WELL-KNOWN] NeurIPS 2022
-@inproceedings{zeng2022lion,
-  title     = {{LION}: Latent Point Diffusion Models for {3D} Shape Generation},
-  author    = {Zeng, Xiaohui and Vahdat, Arash and Williams, Francis and
-               Gojcic, Zan and Litany, Or and Fidler, Sanja and Kreis, Karsten},
-  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
-  year      = {2022},
-}
-
-%% [WELL-KNOWN] CVPR 2022
-@inproceedings{rombach2022ldm,
-  title     = {High-Resolution Image Synthesis with Latent Diffusion Models},
-  author    = {Rombach, Robin and Blattmann, Andreas and Lorenz, Dominik
-               and Esser, Patrick and Ommer, Bj{\"o}rn},
-  booktitle = {Proceedings of the IEEE/CVF Conference on Computer Vision and
-               Pattern Recognition (CVPR)},
-  year      = {2022},
-}
-
-%% ── Generative model training ───────────────────────────────────────
-
-%% [WELL-KNOWN] ICLR 2014
 @inproceedings{kingma2014vae,
-  title     = {Auto-Encoding Variational {Bayes}},
   author    = {Kingma, Diederik P. and Welling, Max},
+  title     = {Auto-Encoding Variational Bayes},
   booktitle = {International Conference on Learning Representations (ICLR)},
   year      = {2014},
 }
 
-%% [WELL-KNOWN] NeurIPS 2020
 @inproceedings{ho2020ddpm,
-  title     = {Denoising Diffusion Probabilistic Models},
   author    = {Ho, Jonathan and Jain, Ajay and Abbeel, Pieter},
+  title     = {Denoising Diffusion Probabilistic Models},
   booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
   year      = {2020},
 }
 
-%% [VERIFIED] ICLR 2023
 @inproceedings{lipman2023flowmatching,
+  author    = {Lipman, Yaron and Chen, Ricky T. Q. and Ben-Hamu, Heli and Nickel, Maximilian and Le, Matthew},
   title     = {Flow Matching for Generative Modeling},
-  author    = {Lipman, Yaron and Chen, Ricky T.~Q. and Ben-Hamu, Heli and
-               Nickel, Maximilian and Le, Matthew},
   booktitle = {International Conference on Learning Representations (ICLR)},
   year      = {2023},
 }
 
-%% [VERIFIED] ICLR 2023
 @inproceedings{liu2023rectified,
-  title     = {Flow Straight and Fast: Learning to Generate and Transfer Data
-               with Rectified Flow},
   author    = {Liu, Xingchao and Gong, Chengyue and Liu, Qiang},
+  title     = {Flow Straight and Fast: Learning to Generate and Transfer Data with Rectified Flow},
   booktitle = {International Conference on Learning Representations (ICLR)},
   year      = {2023},
 }
 
-%% [VERIFIED] ICCV 2023
 @inproceedings{peebles2023dit,
-  title     = {Scalable Diffusion Models with Transformers},
   author    = {Peebles, William and Xie, Saining},
-  booktitle = {Proceedings of the IEEE/CVF International Conference on
-               Computer Vision (ICCV)},
+  title     = {Scalable Diffusion Models with Transformers},
+  booktitle = {IEEE/CVF International Conference on Computer Vision (ICCV)},
   year      = {2023},
 }
 
-%% [VERIFIED] ECCV 2024; arXiv:2401.08740
 @inproceedings{ma2024sit,
-  title     = {{SiT}: Exploring Flow and Diffusion-based Generative Models with
-               Scalable Interpolant Transformers},
-  author    = {Ma, Nanye and Goldstein, Mark and Albergo, Michael Samuel and
-               Boffi, Nicholas Matthew and Vanden-Eijnden, Eric and Xie, Saining},
+  author    = {Ma, Nanye and Goldstein, Mark and Albergo, Michael S. and Boffi, Nicholas M. and Vanden-Eijnden, Eric and Xie, Saining},
+  title     = {{SiT}: Exploring Flow and Diffusion-based Generative Models with Scalable Interpolant Transformers},
   booktitle = {European Conference on Computer Vision (ECCV)},
   year      = {2024},
 }
 
-%% ── Set learning and space-filling curves ───────────────────────────
-
-%% [WELL-KNOWN] CVPR 2017
-@inproceedings{qi2017pointnet,
-  title     = {{PointNet}: Deep Learning on Point Sets for {3D} Classification
-               and Segmentation},
-  author    = {Qi, Charles R. and Su, Hao and Mo, Kaichun and
-               Guibas, Leonidas J.},
-  booktitle = {Proceedings of the IEEE Conference on Computer Vision and
-               Pattern Recognition (CVPR)},
-  year      = {2017},
+@inproceedings{gao2025can3tok,
+  author    = {Gao, Quankai and Li, Iliyan and Mitra, Niloy J. and Wonka, Peter},
+  title     = {{Can3Tok}: Canonical {3D} Tokenization and Latent Modeling of Scene-Level {3D} {G}aussians},
+  booktitle = {IEEE/CVF International Conference on Computer Vision (ICCV)},
+  year      = {2025},
 }
 
-%% [WELL-KNOWN] ICML 2021
+@inproceedings{li2025scenesplat,
+  author    = {Li, Yue and Wu, Yifan and Hadji, Isma and Oswald, Martin R.},
+  title     = {{SceneSplat}: Gaussian Splatting-based Scene Understanding with Vision-Language Pre-training},
+  booktitle = {IEEE/CVF International Conference on Computer Vision (ICCV)},
+  year      = {2025},
+}
+
+@misc{ma2025scenesplatpp,
+  author    = {Li, Yue and others},
+  title     = {{SceneSplat}++: Language-aligned {G}aussian Splatting at Scale},
+  year      = {2025},
+  note      = {Preprint},
+}
+
+@inproceedings{zeng2022lion,
+  author    = {Zeng, Xiaohui and Vahdat, Arash and Williams, Francis and Gojcic, Zan and Litany, Or and Fidler, Sanja and Kreis, Karsten},
+  title     = {{LION}: Latent Point Diffusion Models for {3D} Shape Generation},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  year      = {2022},
+}
+
+@inproceedings{zhao2023michelangelo,
+  author    = {Zhao, Zibo and Liu, Wen and Chen, Xin and Zeng, Xianfang and Wang, Rui and Cheng, Pei and Fu, Bin and Chen, Tao and Yu, Gang and Gao, Shenghua},
+  title     = {{Michelangelo}: Conditional {3D} Shape Generation based on Shape-Image-Text Aligned Latent Representation},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  year      = {2023},
+}
+
+@inproceedings{zhang2024gaussiancube,
+  author    = {Zhang, Bowen and Cheng, Yiji and Yang, Jiaolong and Wang, Chunyu and Zhao, Feng and Tang, Yansong and Chen, Dong and Guo, Baining},
+  title     = {{GaussianCube}: A Structured and Explicit Radiance Representation for {3D} Generative Modeling},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  year      = {2024},
+}
+
+@inproceedings{lu2024scaffold,
+  author    = {Lu, Tao and Yu, Mulin and Xu, Linning and Xiangli, Yuanbo and Wang, Limin and Lin, Dahua and Dai, Bo},
+  title     = {{Scaffold-GS}: Structured {3D} {G}aussians for View-Adaptive Rendering},
+  booktitle = {IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)},
+  year      = {2024},
+}
+
+@inproceedings{wu2024ptv3,
+  author    = {Wu, Xiaoyang and Jiang, Li and Wang, Peng-Shuai and Liu, Zhijian and Liu, Xihui and Qiao, Yu and Ouyang, Wanli and He, Tong and Zhao, Hengshuang},
+  title     = {Point Transformer {V3}: Simpler, Faster, Stronger},
+  booktitle = {IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)},
+  year      = {2024},
+}
+
+@article{skilling2004hilbert,
+  author    = {Skilling, John},
+  title     = {Programming the {H}ilbert Curve},
+  journal   = {AIP Conference Proceedings},
+  volume    = {707},
+  number    = {1},
+  pages     = {381--387},
+  year      = {2004},
+}
+
+@article{oord2018cpc,
+  author    = {van den Oord, A{\"a}ron and Li, Yazhe and Vinyals, Oriol},
+  title     = {Representation Learning with Contrastive Predictive Coding},
+  journal   = {arXiv preprint arXiv:1807.03748},
+  year      = {2018},
+}
+
+@inproceedings{su2021roformer,
+  author    = {Su, Jianlin and Lu, Yu and Pan, Shengfeng and Wen, Bo and Liu, Yunfeng},
+  title     = {{RoFormer}: Enhanced Transformer with Rotary Position Embedding},
+  booktitle = {arXiv preprint arXiv:2104.09864},
+  year      = {2021},
+}
+
 @inproceedings{jaegle2021perceiver,
-  title     = {{Perceiver}: General Perception with Iterative Attention},
-  author    = {Jaegle, Andrew and Gimeno, Felix and Brock, Andy and
-               Vinyals, Oriol and Zisserman, Andrew and Carreira, Jo{\~a}o},
+  author    = {Jaegle, Andrew and Gimeno, Felix and Brock, Andy and Vinyals, Oriol and Zisserman, Andrew and Carreira, Jo{\~a}o},
+  title     = {Perceiver: General Perception with Iterative Attention},
   booktitle = {International Conference on Machine Learning (ICML)},
   year      = {2021},
 }
 
-%% [WELL-KNOWN] ICLR 2022
 @inproceedings{jaegle2022perceiverio,
-  title     = {{Perceiver IO}: A General Architecture for Structured Inputs
-               and Outputs},
-  author    = {Jaegle, Andrew and Borgeaud, Sebastian and Alayrac, Jean-Baptiste
-               and Doersch, Carl and Ionescu, Catalin and Ding, David and
-               Koppula, Skanda and Zoran, Daniel and Brock, Andrew and
-               Shelhamer, Evan and others},
+  author    = {Jaegle, Andrew and Borgeaud, Sebastian and Alayrac, Jean-Baptiste and Doersch, Carl and Ionescu, Catalin and Ding, David and Koppula, Skanda and Zoran, Daniel and Brock, Andrew and Shelhamer, Evan and others},
+  title     = {{Perceiver IO}: A General Architecture for Structured Inputs and Outputs},
   booktitle = {International Conference on Learning Representations (ICLR)},
   year      = {2022},
 }
 
-%% [VERIFIED] CVPR 2024, pp.~4840--4851
-@inproceedings{wu2024ptv3,
-  title     = {{Point Transformer V3}: Simpler, Faster, Stronger},
-  author    = {Wu, Xiaoyang and Jiang, Li and Wang, Peng-Shuai and Liu, Zhijian
-               and Liu, Xihui and Qiao, Yu and Ouyang, Wanli and He, Tong
-               and Zhao, Hengshuang},
-  booktitle = {Proceedings of the IEEE/CVF Conference on Computer Vision and
-               Pattern Recognition (CVPR)},
-  pages     = {4840--4851},
-  year      = {2024},
+@inproceedings{qi2017pointnet,
+  author    = {Qi, Charles R. and Su, Hao and Mo, Kaichun and Guibas, Leonidas J.},
+  title     = {{PointNet}: Deep Learning on Point Sets for {3D} Classification and Segmentation},
+  booktitle = {IEEE Conference on Computer Vision and Pattern Recognition (CVPR)},
+  year      = {2017},
 }
 
-%% [WELL-KNOWN] AIP Conf.\ Proc.\ 707, 2004
-@article{skilling2004hilbert,
-  title   = {Programming the {Hilbert} Curve},
-  author  = {Skilling, John},
-  journal = {AIP Conference Proceedings},
-  volume  = {707},
-  number  = {1},
-  pages   = {381--387},
-  year    = {2004},
+@inproceedings{dai2017scannet,
+  author    = {Dai, Angela and Chang, Angel X. and Savva, Manolis and Halber, Maciej and Funkhouser, Thomas and Nie{\ss}ner, Matthias},
+  title     = {{ScanNet}: Richly-Annotated {3D} Reconstructions of Indoor Scenes},
+  booktitle = {IEEE Conference on Computer Vision and Pattern Recognition (CVPR)},
+  year      = {2017},
 }
 
-%% ── Optimal transport ───────────────────────────────────────────────
-
-%% [WELL-KNOWN] NeurIPS 2013
-@inproceedings{cuturi2013sinkhorn,
-  title     = {{Sinkhorn} Distances: Lightspeed Computation of Optimal Transport},
-  author    = {Cuturi, Marco},
-  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
-  year      = {2013},
+@inproceedings{rombach2022ldm,
+  author    = {Rombach, Robin and Blattmann, Andreas and Lorenz, Dominik and Esser, Patrick and Ommer, Bj{\"o}rn},
+  title     = {High-Resolution Image Synthesis with Latent Diffusion Models},
+  booktitle = {IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)},
+  year      = {2022},
 }
 
-%% [WELL-KNOWN] ECCV 2020
-@inproceedings{carion2020detr,
-  title     = {End-to-End Object Detection with Transformers},
-  author    = {Carion, Nicolas and Massa, Francisco and Synnaeve, Gabriel and
-               Usunier, Nicolas and Kirillov, Alexander and Zagoruyko, Sergey},
-  booktitle = {European Conference on Computer Vision (ECCV)},
-  year      = {2020},
-}
-
-%% [WELL-KNOWN] Springer 2009
-@book{villani2009ot,
-  title     = {Optimal Transport: Old and New},
-  author    = {Villani, C{\'e}dric},
-  publisher = {Springer},
-  series    = {Grundlehren der mathematischen Wissenschaften},
-  volume    = {338},
-  year      = {2009},
-}
-
-%% ── Representations and Fourier features ────────────────────────────
-
-%% [WELL-KNOWN] NeurIPS 2020
-@inproceedings{tancik2020fourier,
-  title     = {{Fourier} Features Let Networks Learn High Frequency Functions
-               in Low Dimensional Domains},
-  author    = {Tancik, Matthew and Srinivasan, Pratul P. and Mildenhall, Ben
-               and Fridovich-Keil, Sara and Raghavan, Nithin and Singhal, Utkarsh
-               and Ramamoorthi, Ravi and Barron, Jonathan T. and Ng, Ren},
-  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
-  year      = {2020},
-}
-
-%% ── Contrastive and disentangled representations ────────────────────
-
-%% [WELL-KNOWN] arXiv:1807.03748
-@article{oord2018cpc,
-  title   = {Representation Learning with Contrastive Predictive Coding},
-  author  = {van den Oord, Aaron and Li, Yazhe and Vinyals, Oriol},
-  journal = {arXiv preprint arXiv:1807.03748},
-  year    = {2018},
-}
-
-%% [WELL-KNOWN] ICML 2020
-@inproceedings{chen2020simclr,
-  title     = {A Simple Framework for Contrastive Learning of Visual
-               Representations},
-  author    = {Chen, Ting and Kornblith, Simon and Norouzi, Mohammad and
-               Hinton, Geoffrey},
-  booktitle = {International Conference on Machine Learning (ICML)},
-  year      = {2020},
-}
-
-%% [WELL-KNOWN] ICLR 2017
 @inproceedings{higgins2017betavae,
-  title     = {{beta-VAE}: Learning Basic Visual Concepts with a Constrained
-               Variational Framework},
-  author    = {Higgins, Irina and Matthey, Loic and Pal, Arka and
-               Burgess, Christopher and Glorot, Xavier and Botvinick, Matthew
-               and Mohamed, Shakir and Lerchner, Alexander},
+  author    = {Higgins, Irina and Matthey, Loic and Pal, Arka and Burgess, Christopher and Glorot, Xavier and Botvinick, Matthew and Mohamed, Shakir and Lerchner, Alexander},
+  title     = {beta-{VAE}: Learning Basic Visual Concepts with a Constrained Variational Framework},
   booktitle = {International Conference on Learning Representations (ICLR)},
   year      = {2017},
 }
 
-%% [WELL-KNOWN] ICML 2019 (Best Paper)
 @inproceedings{locatello2019challenging,
-  title     = {Challenging Common Assumptions in the Unsupervised Learning of
-               Disentangled Representations},
-  author    = {Locatello, Francesco and Bauer, Stefan and Lucic, Mario and
-               R{\"a}tsch, Gunnar and Gelly, Sylvain and Sch{\"o}lkopf, Bernhard
-               and Bachem, Olivier},
+  author    = {Locatello, Francesco and Bauer, Stefan and Lucic, Mario and R{\"a}tsch, Gunnar and Gelly, Sylvain and Sch{\"o}lkopf, Bernhard and Bachem, Olivier},
+  title     = {Challenging Common Assumptions in the Unsupervised Learning of Disentangled Representations},
   booktitle = {International Conference on Machine Learning (ICML)},
   year      = {2019},
 }
 
-%% ── Datasets ────────────────────────────────────────────────────────
-
-%% [WELL-KNOWN] CVPR 2017
-@inproceedings{dai2017scannet,
-  title     = {{ScanNet}: Richly-Annotated {3D} Reconstructions of Indoor Scenes},
-  author    = {Dai, Angela and Chang, Angel X. and Savva, Manolis and
-               Halber, Maciej and Funkhouser, Thomas and Nie{\ss}ner, Matthias},
-  booktitle = {Proceedings of the IEEE Conference on Computer Vision and
-               Pattern Recognition (CVPR)},
-  year      = {2017},
+@inproceedings{chen2020simclr,
+  author    = {Chen, Ting and Kornblith, Simon and Norouzi, Mohammad and Hinton, Geoffrey},
+  title     = {A Simple Framework for Contrastive Learning of Visual Representations},
+  booktitle = {International Conference on Machine Learning (ICML)},
+  year      = {2020},
 }
 
-%% ── Perceptual metrics ──────────────────────────────────────────────
-
-%% [WELL-KNOWN] IEEE TIP 2004
-@article{wang2004ssim,
-  title   = {Image Quality Assessment: From Error Visibility to Structural
-             Similarity},
-  author  = {Wang, Zhou and Bovik, Alan C. and Sheikh, Hamid R. and
-             Simoncelli, Eero P.},
-  journal = {IEEE Transactions on Image Processing},
-  volume  = {13},
-  number  = {4},
-  pages   = {600--612},
-  year    = {2004},
+@inproceedings{tancik2020fourier,
+  author    = {Tancik, Matthew and Srinivasan, Pratul P. and Mildenhall, Ben and Fridovich-Keil, Sara and Raghavan, Nithin and Singhal, Utkarsh and Ramamoorthi, Ravi and Barron, Jonathan T. and Ng, Ren},
+  title     = {Fourier Features Let Networks Learn High Frequency Functions in Low Dimensional Domains},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  year      = {2020},
 }
 
-%% [WELL-KNOWN] CVPR 2018
-@inproceedings{zhang2018lpips,
-  title     = {The Unreasonable Effectiveness of Deep Features as a Perceptual
-               Metric},
-  author    = {Zhang, Richard and Isola, Phillip and Efros, Alexei A. and
-               Shechtman, Eli and Wang, Oliver},
-  booktitle = {Proceedings of the IEEE Conference on Computer Vision and
-               Pattern Recognition (CVPR)},
-  year      = {2018},
+@inproceedings{loshchilov2019adamw,
+  author    = {Loshchilov, Ilya and Hutter, Frank},
+  title     = {Decoupled Weight Decay Regularization},
+  booktitle = {International Conference on Learning Representations (ICLR)},
+  year      = {2019},
 }

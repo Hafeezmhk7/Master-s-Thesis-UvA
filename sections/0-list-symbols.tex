@@ -17,14 +17,17 @@ The following notation is used throughout the thesis.
     $N$ & number of primitives sampled per scene \\
     $E_\phi,\ D_\theta$ & encoder and decoder \\
     $Z \in \mathbb{R}^{T \times d}$ & latent of $T$ tokens of width $d$ \\
-    $z_s,\ z_g$ & layout (semantic) and geometry latent subspaces \\
+    $T = 512$ & number of latent tokens \\
+    $d = 32$ & per-token latent dimension \\
+    $z_s,\ z_g$ & layout (semantic) and geometry latent components \\
     $\beta$ & weight of the KL regulariser \\
-    $K$ & number of Hilbert blocks (and geometry tokens) \\
-    $g = \lceil N/K \rceil$ & primitives per block \\
+    $K$ & number of Hilbert blocks (equal to $T$ in this work) \\
+    $g = \lceil N/K \rceil$ & Gaussians per block \\
     $\omega$ & half-width of the local encoder window (in blocks) \\
     $a_{\tau(i)}$ & anchor of the token $\tau(i)$ owning primitive $i$ \\
     $o_i,\ \rho$ & raw position offset and learnable offset scale \\
-    $d_{\mathrm{B}}(\cdot,\cdot)$ & Bures (2-Wasserstein) distance between covariances \\
+    $h(i)$ & Hilbert-curve key of primitive $i$ \\
+    $v_\theta(Z_t, t)$ & velocity field of the flow-matching denoiser \\
   \end{tabular}
 \end{table}
 
@@ -44,12 +47,12 @@ The following notation is used throughout the thesis.
     APE   & Absolute Position Embedding \\
     MLP   & Multilayer Perceptron \\
     FPS   & Farthest-Point Sampling \\
-    OT    & Optimal Transport \\
     InfoNCE & Information Noise-Contrastive Estimation \\
     PCA   & Principal Component Analysis \\
     SSC   & Semantic Scene Completion \\
     PSNR  & Peak Signal-to-Noise Ratio \\
     SSIM  & Structural Similarity Index \\
     LPIPS & Learned Perceptual Image Patch Similarity \\
+    DC/AC & DC (mean) and AC (residual) components of colour \\
   \end{tabular}
 \end{table}

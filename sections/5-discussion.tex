@@ -1,161 +1,48 @@
 \chapter{Discussion}
 \label{chap:discussion}
 
-%% ──────────────────────────────────────────────────────────────────────────
-\section{What the Results Support}
-\label{sec:disc_support}
-
-The clearest finding in this work is that imposing a canonical spatial order
-on the Gaussian set is a prerequisite for scaling the autoencoder beyond a
-few hundred scenes. Without ordering, the model cannot learn a stable
-slot-to-position correspondence, and the validation loss stagnates regardless
-of architecture or objective. This is not about the \emph{method} of ordering
-in particular---even a rough spatially consistent ordering helps---but about
-the \emph{presence} of any consistent order. The Hilbert curve was chosen over
-Morton ordering and opacity ranking because its locality guarantee (consecutive
-indices are always spatially adjacent) gives the smoothest, most learnable
-slot-to-position target~\citep{wu2024ptv3}.
-
-The second clear finding is that the local encoder closes the generalisation
-gap. The gap between training and held-out error in R2 ($5$--$8\times$) is a
-recognisable memorisation signature: the model has enough capacity to store
-per-scene codes but these codes do not transfer. Switching to the windowed
-encoder eliminates this almost entirely. The reason, we believe, is
-compositional: a local flat-floor patch activates the same encoder features
-across rooms, and a shared per-token MLP decoder learns a general
-``patch-features $\to$ local Gaussians'' function rather than a per-scene
-lookup table. This compositionality is exactly what Hilbert ordering was designed
-to enable: it groups similar local patches together so the local encoder
-sees consistent training signal.
-
-The 300-scene results add a complementary picture: the latent is capable of
-carrying semantic structure when explicitly encouraged. The disentanglement
-experiments show that a cross-reconstruction loss and orthogonality penalty
-genuinely separate layout and geometry representations (the swap test reduces
-geometry disruption from 6.5\% to 0.08\%). The semantic feature visualisations
-show clear category clustering. These findings motivate two design choices for
-the Stage-2 generator: (a) the hierarchical $z_s$/$z_g$ split for generation,
-and (b) the use of B1-style conditioning for completion, where stability
-under partial observation is paramount (Stab.@40\% of 0.761 for B1 vs.\ 0.365
-for the best Strategy-A variant).
+This chapter steps back from the numbers and asks what the seven-variant ablation actually supports. I revisit each research question in turn, then discuss what the frozen-splat regime is really doing to the loss landscape, then the limitations that I am aware of and that constrain the conclusions one can draw.
 
 %% ──────────────────────────────────────────────────────────────────────────
-\section{The Frozen-Splat Regime}
+\section{Revisiting the Research Questions}
+\label{sec:disc_rqs}
+
+\paragraph{RQ1 (Ordering).} The result is positive but with one qualifier. Hilbert serialisation in a fixed canonical frame substantially improves validation reconstruction (V1 $\to$ V2: 99 $\to$ 77 on the full-scene validation $\ell_2$, Table~\ref{tab:7_summary}). The improvement is entirely a generalisation effect; on the training set, the V1 architecture can also bring the loss down, but it does so by storing per-scene context in the bottleneck. Imposing a canonical order on the target makes the position component of the loss into a learnable function, so the network can use the same parameters across scenes instead of memorising a per-scene mapping. The qualifier is that the ordering only buys what it buys; pairing it with a position scaffold gets a much larger drop (V2 $\to$ V3: 77 $\to$ 45), so the order is the necessary precondition rather than the full solution.
+
+\paragraph{RQ2 (Architecture and generalisation).} The result is also positive but with a clearer mechanism than I expected. Replacing the flat 777M-parameter decoder with a 1.6M-parameter token-local MLP \emph{by itself} does not close the gap (V1 $\to$ V4: stays at 99). Adding a local encoder \emph{by itself} would not be testable cleanly because the local encoder gives a per-token latent that the flat decoder cannot use coherently. The two changes only work together. When both are on (V5), reconstruction improves to 79 with a $500\times$ reduction in decoder parameters; when the Hilbert order plus scaffold are added on top (V6), reconstruction drops to about 47, comparable to V3's 45 but with two orders of magnitude fewer decoder parameters. The mechanism is that the local encoder and the token-local decoder are two halves of one structural decision: latent token $k$ is a code for spatial region $k$, and the decoder MLP only has to model what is in that region. This compositional structure is what generalises.
+
+\paragraph{RQ3 (Semantic structure).} The 300-scene experiments (\S\ref{sec:results_300}) show that per-Gaussian InfoNCE based on ScanNet-72 labels can be added at no measurable cost to reconstruction, while producing per-Gaussian features that cluster by category (Figure~\ref{fig:pca_features}). The layout/geometry split (Strategy~B1's deterministic-layout idea, lifted into the VAE form for the large-scale runs) gives a more stable layout code under partial-scan masking. At scale (V6 vs.\ V3) the disentangled and per-Gaussian-supervised variant matches the un-disentangled variant on reconstruction, and provides the schema (a 16-token $z_s$ plus a 512-token $z_g$) that the hierarchical Stage~2 generator needs. The qualifier here is that semantic structure was not the limiting factor for reconstruction at any scale studied, so the disentanglement is best read as a Stage-2-enabling design choice rather than a Stage-1 reconstruction win.
+
+%% ──────────────────────────────────────────────────────────────────────────
+\section{What the Frozen-Splat Regime Does to the Loss Landscape}
 \label{sec:disc_frozen}
 
-One observation that emerged from this project, and that has not been
-explicitly discussed in prior work, is the difference between training on
-\emph{jointly optimised} Gaussians (Can3Tok's setting) and training on
-\emph{pre-fitted, frozen} Gaussians (our setting). In the former, the Gaussian
-attributes are adapted during autoencoder training and the fitting process
-learns to produce Gaussians that are easy for the autoencoder to tokenise. In
-the latter, the autoencoder must cope with Gaussians whose within-region
-arrangement was determined entirely by a rendering-quality optimiser that has
-no knowledge of tokens.
+The contrast between the Can3Tok original demonstration (a few hundred scenes, splat-fitting jointly optimised with the encoder) and the SceneSplat-7K setting (thousands of scenes, splats pre-fitted and frozen) deserves its own paragraph. In Can3Tok's joint regime, the splat-fitting process can subtly co-adapt to whatever per-token tokenisation the encoder ends up using. The decoder slot $i$ has implicit influence on what gets put into the input position $i$. In the pre-fitted regime, this co-adaptation is broken: the splats are fixed by a renderer-quality objective that has no knowledge of the autoencoder, so the network must absorb whatever within-region arrangement the renderer produced.
 
-The practical consequence is that the within-block structural ambiguity is
-much larger with frozen splats. Two Gaussians in the same local region
-are interchangeable for rendering purposes but not for the slot-aligned
-reconstruction objective. The Sinkhorn set loss addresses this at the loss
-level (by matching within blocks by optimal assignment), but the deeper fix
-is to reduce the block size $g$ so there are fewer interchangeable Gaussians
-per token. This is why we believe a smaller sampling budget is better in our
-setting, and why the large-scale training with $N=40{,}000$ (from the Can3Tok
-default) converges more slowly than with $N=10{,}000$.
+This explains why the same architecture that worked at 300 scenes in the joint setting fails to generalise at 6{,}000 in the pre-fitted setting. The 300-scene exploration in this thesis (also pre-fitted) does not contradict this; at 300 scenes the network is still in the memorisation regime where per-scene context is cheap to store, and the failure mode of the pre-fitted setting is not yet active. The seven-variant ablation is in some sense a study of how to make a slot-aligned loss work when the data-side cooperation that the joint setting silently relied on is removed.
 
-This distinction matters for the community: any application of a 3DGS
-autoencoder to pre-computed scene reconstructions (which is the most natural
-deployment scenario) will encounter the frozen-splat regime, and the optimal
-hyperparameters for that regime differ from those reported in Can3Tok.
-
-%% ──────────────────────────────────────────────────────────────────────────
-\section{What the Reconstruction Objectives Contribute}
-\label{sec:disc_objectives}
-
-The combination of the Sinkhorn set loss and the Bures codiag orientation
-loss was motivated by practical failures observed during development: the
-colour of reconstructed scenes was washed out (all primitives converged to
-mean grey) and the Gaussian shapes were round blobs rather than elongated
-splats.
-
-The set loss addresses the colour problem. Without it, the decoder must
-predict which of $g$ primitives in a block gets which colour, but the
-``correct'' assignment is determined by the opacity-ranking-based fitting
-which has no semantic meaning for the decoder. The Sinkhorn matching lets
-the decoder produce any permutation of colours within a block and be graded
-by the best assignment, which removes the arbitrary permutation from the
-gradient.
-
-The covariance loss addresses the orientation problem. Measuring orientation
-through the covariance matrix rather than the quaternion means the metric
-is parameterisation-invariant: two quaternions that represent the same rotation
-(under sign flip or axis relabelling) score identically. The Bures
-co-diagonalisation~\citep{villani2009ot} is numerically stable because the
-square root $\vsigma^{1/2} = R\,\mathrm{diag}(|s|)\,R^\top$ is available
-in closed form.
-
-Both objectives are complementary and were kept throughout the large-scale
-runs. Their relative contribution to the improvement over a pure element-wise
-loss can be measured by ablating them out of R1, which is straightforward
-to do but was not part of the main ablation plan.
+It also explains the otherwise surprising finding that the position scaffold (V3) gives a much larger improvement than ordering alone (V2). With ordering alone, the network still has to predict the absolute coordinate at slot $i$, which is hard for the same reason: within a Hilbert block the absolute position varies room by room. With the scaffold, the network only has to predict a bounded local offset relative to a token-specific anchor that is itself constrained to be the block centroid. The hard work is delegated to the anchor head, which has a structurally easy job, and the offset head solves a simple local-deformation problem. The two-stage decomposition matches what the pre-fitted regime can actually identify from data.
 
 %% ──────────────────────────────────────────────────────────────────────────
 \section{Limitations}
 \label{sec:disc_limitations}
 
-\paragraph{Incomplete large-scale results.}
-The most significant limitation is that the large-scale training was still
-running at the time of writing. The quantitative tables in
-Chapter~\ref{chap:results} carry pending markers, and the conclusions about
-the relative performance of R1 vs.\ R2 are based on partially-trained
-checkpoints and qualitative inspection of reconstruction PLYs. The
-final numbers may refine the picture.
+I list the limitations I am aware of, ordered roughly from most consequential.
 
-\paragraph{Rotation accuracy.}
-Even with the Bures codiag loss, the raw quaternion error metric is difficult
-to interpret because two quaternions that represent the same rotation
-are scored as different. The covariance error is the more meaningful metric
-for orientation quality, and it converges. Rendering quality (PSNR, SSIM)
-from the final checkpoint will provide the most direct measure of whether
-orientation is correct.
+\paragraph{No rendering-quality metrics.} Every number in Chapter~\ref{chap:results} is on the same per-primitive $\ell_2$ residual that is used during training. I do not report PSNR, SSIM, or LPIPS on rendered images of the reconstructed scenes. The per-primitive $\ell_2$ is a useful relative metric for comparing variants but is not directly tied to perceptual quality. Adding rendered-image evaluation is the next concrete step.
 
-\paragraph{Semantic supervision at scale.}
-The per-primitive InfoNCE and the disentanglement objectives were only run at
-300 scenes, not in the main large-scale experiments. Whether they provide
-the same benefit at 6,000+ scenes is an open question. Run~R3 (planned,
-with disentanglement at scale) will provide the first answer.
+\paragraph{Stage~2 not yet end-to-end.} The Stage~2 design is in place and is training, but I do not have generated-scene samples or comparable image-space metrics. The conclusions about RQ3 (semantic structure) depend in part on the schema being useful for the hierarchical generator; until end-to-end completion samples are available, the claim is partial.
 
-\paragraph{Scene completion not evaluated.}
-The original project title includes ``scene completion'', which requires
-the Stage-2 inpainting pipeline. This pipeline is designed and the
-Stage-2 training is planned, but scene completion has not yet been evaluated.
-This is the principal gap between what was proposed and what has been delivered,
-and it is the primary direction for future work.
+\paragraph{Fixed-$N$ assumption.} I work with a fixed 40{,}000 Gaussians per scene, sampled by top-opacity ranking. Real 3DGS scenes have variable counts (often in the hundreds of thousands), and the top-opacity ranking biases the input distribution towards opaque furniture surfaces. A density-uniform farthest-point sampling would give a more spatially balanced input and is a clear next experiment.
 
-\paragraph{Coverage breadth.}
-Training and evaluation are confined to indoor scenes. Whether the
-representation transfers to outdoor, object-centric, or very large-scale
-scenes is untested.
+\paragraph{Indoor-only.} SceneSplat-7K is indoor only. The Hilbert canonical frame (radius 10\,m) is sized for indoor extents. Outdoor scenes with unbounded depth would need either a different normalisation (log-depth contracted) or a tiled-scene approach. I have not tested either.
 
-%% ──────────────────────────────────────────────────────────────────────────
-\section{Future Work}
-\label{sec:disc_future}
+\paragraph{No comparison to a Can3Tok-style joint training at scale.} A fair test of the frozen-vs-joint hypothesis (\S\ref{sec:disc_frozen}) would be to also train a joint-splat variant at the same scale and compare. Doing this is computationally expensive (splat fitting per scene is not free) and was out of scope for this thesis.
 
-The most immediate next step is to complete the large-scale training runs,
-evaluate the best checkpoint with image-space metrics (PSNR, SSIM, LPIPS),
-and then train the Stage-2 generator and evaluate scene completion at varying
-partial-scan coverage fractions.
+\paragraph{Hyperparameter sweep is shallow.} For each of the seven variants I have a single training run on a single seed. Variance estimates would be informative, but each run takes a couple of days on 2$\times$H100 and the budget did not allow for repeats. The trends between variants are large enough relative to plausible seed variance that I am confident in the qualitative ordering, but precise effect sizes should be treated as point estimates.
 
-Longer-term, several directions are worth exploring with a view to a future
-publication. First, the frozen-splat sampling insight suggests a systematic
-study of the optimal block size $g$ as a function of scene complexity and
-splat quality. Second, the within-block placement ambiguity could be fully
-eliminated by replacing individual Gaussian targets with a density-based
-target (e.g., comparing predicted and target occupancy rather than
-per-Gaussian positions), removing the need for the Sinkhorn matching
-altogether. Third, the semantic objectives could be extended to the large-scale
-setting using SceneSplat++ labels~\citep{ma2025scenesplatpp} and multi-task
-learning to jointly train reconstruction and semantic feature quality.
-Finally, bringing scene completion to evaluation and benchmarking against
-existing explicit scene completion methods would provide a strong narrative
-for a conference submission.
+\paragraph{ScanNet-72 labels do not transfer cleanly across sub-datasets.} I disable per-Gaussian semantic supervision for the ARKitScenes and ScanNet++ portions of the training corpus because their taxonomies do not match ScanNet-72 exactly. This is a pragmatic choice; a unified label space (or a multi-taxonomy head) would let the per-Gaussian supervision act on every training scene.
+
+\paragraph{Disentanglement is structural, not identifiable.} The layout/geometry split in V6/V7 relies on auxiliary heads (scene-mean colour, scene-label distribution, per-category centroids), cross-reconstruction, and the orthogonality regulariser. These are structural inductive biases. As Locatello et al.\ \citep{locatello2019challenging} point out, unsupervised disentanglement is not identifiable; my split is identifiable only insofar as the auxiliary supervision pins down what $z_s$ is supposed to contain. The supervision could be stronger or weaker without my having a principled way to choose.
+
+None of these limitations invalidates the central finding of the thesis (the joint role of Hilbert ordering, anchor-relative decoding, and the local encoder plus token-local decoder pair in making the Stage~1 VAE scale). They do delimit the scope within which that finding is presently supported.

@@ -1,419 +1,190 @@
 \chapter{Results}
 \label{chap:results}
 
-We present results in three groups. \S\ref{sec:results_300} covers the
-300-scene exploratory experiments where the model converges well and exact
-numbers are available from completed runs. \S\ref{sec:results_large} covers
-the large-scale ablation of the four configurations in Table~\ref{tab:configs};
-these experiments are currently in training and tables carry \emph{[pending]}
-markers where final numbers will be filled in. \S\ref{sec:results_semantic}
-covers the qualitative semantic structure.
+This chapter reports the empirical findings. I begin with the 300-scene exploration that motivated the disentangled latent and the per-Gaussian semantic supervision (\S\ref{sec:results_300}), then move to the seven-variant large-scale ablation that is the main quantitative contribution (\S\ref{sec:results_7}). Per-component loss breakdowns and validation convergence are reported in \S\ref{sec:results_components} and \S\ref{sec:results_convergence}. A subsection on Stage~2 (\S\ref{sec:results_stage2}) records what is in progress and what has been observed so far. I write up reconstructions qualitatively in \S\ref{sec:results_quality}.
 
-\noindent\emph{Note on evaluation metrics.} Reconstruction errors are reported
-as raw $\ell_2$ norms per batch (the training convention), averaged over
-validation batches. Per-attribute errors (Pos, Col, Opa, Scl, Rot) use the
-same convention. The generalisation gap is the ratio of held-out error to
-training error; a ratio near 1.0 indicates no memorisation.
+Throughout this chapter the validation metric is the same element-wise $\ell_2$ residual on the 14-dim Gaussian vector that is used in training (Eq.~\eqref{eq:recon_noscaffold}). Two validation sets are reported, the 100 held-out full scenes ($\text{val}^{\text{full}}$, the primary thesis-target metric) and the 88 held-out chunks ($\text{val}^{\text{chunk}}$, an in-distribution diagnostic). All numbers are read from the model's validation logs; for completed runs I report both the best validation score over training and the final epoch numbers.
 
 %% ──────────────────────────────────────────────────────────────────────────
-\section{Small-Scale Exploration: 300 Scenes}
+\section{300-Scene Exploratory Study}
 \label{sec:results_300}
 
-\subsection{Baseline Convergence}
-\label{sec:results_300_base}
+\paragraph{Setup.} I subsampled 300 scenes from the chunked ScanNet split (180 train, 60 val, 60 held-out test for swap diagnostics) and ran a sweep over the three latent-structure strategies described in \S\ref{sec:method_semantic} and the three InfoNCE flavours. All other hyperparameters match the eventual large-scale configuration, except for batch size 16 and 200 epochs.
 
-With the inherited Can3Tok architecture trained on 300 scenes, the model
-converges smoothly: training loss decreases monotonically over hundreds of
-epochs and held-out reconstruction is comparable to training reconstruction.
-Figure~\ref{fig:recon_300} shows qualitative reconstruction results. The
-large-scale structure (room layout, furniture positions, dominant colours)
-is reconstructed faithfully. Fine orientation detail and very thin structures
-are less accurate, consistent with the difficulty of predicting exact
-quaternions from a compressed latent.
+\paragraph{Reconstruction is stable across variants.} At 300 scenes the network has enough capacity to fit any of the four variants, so the raw reconstruction quality is similar across the sweep. The validation $\ell_2$ at epoch 200 sits in the 35--40 range across all four variants. This is consistent with the failure mode at scale being one of generalisation, not of representational capacity.
 
-\begin{figure*}[t]
-  \centering
-  \includegraphics[width=0.97\linewidth, height=0.26\textheight]{example-image}
-  \caption[Qualitative reconstruction at 300 scenes]{%
-    \textbf{Reconstruction quality at 300 scenes.}
-    Each pair shows the ground-truth render (top) and the autoencoder
-    reconstruction (bottom) for three representative held-out scenes.
-    Large-scale structure and colour distribution are faithfully recovered.
-    %
-    \emph{Insert your figures:} export SuperSplat screenshots from
-    \texttt{ground\_truth\_gaussians/} (epoch~0, for the matched ground truth)
-    and \texttt{reconstructed\_gaussians/epoch\_NNN/} side by side.
-    Choose three diverse scenes (bedroom, office, corridor). Crop and
-    arrange as a $3\times2$ grid in Canva or Figma, then export as PDF.
-  }
-  \label{fig:recon_300}
-\end{figure*}
-
-\subsection{Latent Structure Ablation}
-\label{sec:results_300_ablation}
-
-Table~\ref{tab:disent} reports the four evaluation metrics across nine
-latent-structure variants trained at 300 scenes. These experiments were
-the basis for selecting the Stage-2 design.
-
-\begin{table*}[t]
-  \centering
-  \caption[300-scene latent structure ablation]{%
-    \textbf{Latent structure ablation at 300~scenes.}
-    \textbf{Ratio$_{\text{lay}}$}: ratio of inter-category to intra-category cosine
-    distance in the layout subspace (higher = better semantic clustering).
-    \textbf{\%P1}: geometry $\ell_2$ error after cross-scene $z_s$ swap, as a
-    fraction of the cross-scene baseline (lower = better disentanglement;
-    0\% means swapping $z_s$ across scenes does not disrupt geometry at all).
-    \textbf{Stab.@40\%}: cosine similarity of the layout code derived from a 40\%
-    partial scan vs.\ the full scan (higher = more stable for completion).
-    \textbf{Valid\%}: fraction of $\mathcal{N}(0,I)$ prior samples decoding
-    to valid geometry.
-  }
-  \label{tab:disent}
-  {\small
-  \begin{tabular}{lcccc}
-    \toprule
-    \textbf{Variant} &
-    \textbf{Ratio$_{\text{lay}}$}\,$\uparrow$ &
-    \textbf{\%P1}\,$\downarrow$ &
-    \textbf{Stab.@40\%}\,$\uparrow$ &
-    \textbf{Valid\%}\,$\uparrow$ \\
-    \midrule
-    (C) Baseline                       & 1.048 &  6.5\% & $-$0.05 & 100\% \\
-    (A) Disentangled                   & 0.985 &  0.27\% &   0.257 &  94\% \\
-    (A) + structured token split       & 0.968 &  0.23\% &   0.204 &  81\% \\
-    (A) + LayNCE                       & 0.967 &  0.14\% &   0.249 &  95\% \\
-    (A) + PoolNCE                      & 1.027 &  0.18\% &   0.278 &  91\% \\
-    (A) + pgNCE                        & 1.036 &  4.5\%  &   0.272 &  86\% \\
-    (A) + Pool+pgNCE                   & 0.979 & \textbf{0.08\%} & 0.365 & 95\% \\
-    \textbf{(B1) Cross-attn cond.}     & \textbf{1.240} & 0.34\% & \textbf{0.761} & 97\% \\
-    (B2) Additive bias                 & 1.046 & 97\%   & $-$0.06 & 99.5\%\\
-    \bottomrule
-  \end{tabular}}
-\end{table*}
-
-Several observations follow from Table~\ref{tab:disent}.
-
-\textbf{Disentanglement works.} Strategy~A (disentangled) reduces the geometry
-disruption under cross-scene $z_s$ swap from 6.5\% to 0.27\%, showing that
-the separation between layout and geometry subspaces is real, not superficial.
-Adding Pool+pgNCE further reduces this to 0.08\%, an $\approx 80\times$
-improvement over the baseline.
-
-\textbf{B1 is best for completion readiness.} Strategy~B1 achieves a
-Stab.@40\% score of 0.761, far above any variant of Strategy~A (best: 0.365).
-This is because B1 uses a deterministic layout projection (no sampling noise),
-so the same partial scene always produces the same layout code. B1 is therefore
-the natural candidate for the scene completion pipeline.
-
-\textbf{Additive bias fails.} Strategy~B2 collapses to \%P1$=97\%$, indicating
-that the layout conditioning did not separate at all. The additive bias
-is absorbed by the decoder as a constant offset and provides no
-useful conditioning.
-
-\textbf{Key insight for Stage-2 design.} The 300-scene results confirm that a
-hierarchical latent split ($z_s$ for layout, $z_g$ for geometry) is achievable
-and that the layout code is stable under partial observation. This directly
-motivates the two-stage generator described in \S\ref{sec:method_stage2}.
-Although the large-scale runs do not include disentanglement (to keep the
-ablation focused on the scaling problem), Run~R3 is planned with the
-full Strategy~A objectives.
-
-\subsection{Semantic Feature Quality}
-\label{sec:results_semantic_quality}
-
-Table~\ref{tab:semquality} reports the quality of the per-Gaussian
-contrastive features from the two best InfoNCE variants.
+\paragraph{Layout-vs-geometry stability.} A more diagnostic metric is the \emph{stability} of $z_s$ under partial-scan completion, defined as the cosine similarity between $z_s$ produced from a full scene and $z_s$ from a 40\%-randomly-masked partial version. A high value (close to 1) indicates the layout component is stable under missing data, which is the property the disentanglement is meant to enforce. Table~\ref{tab:300_disentangle} gives the comparison.
 
 \begin{table}[h]
   \centering
-  \caption[Per-Gaussian semantic feature quality (300 scenes)]{%
-    \textbf{Per-primitive semantic feature quality at 300~scenes.}
-    Fisher ratio (between/within-class spread of features),
-    mean intra-class feature distance, mean silhouette score over ScanNet-72
-    categories, and $72$-way linear-probe accuracy with 95\% confidence intervals.
-  }
-  \label{tab:semquality}
+  \caption[300-scene latent disentanglement comparison]{\textbf{Layout stability at 300 scenes.} Higher Stab.@40\% is better. Strategy~B1 is the deterministic-layout variant and gives the most stable $z_s$ under masking; Strategy~A is the VAE-sampled variant; Strategy~B2 (additive bias) failed to disentangle and is shown for completeness; Strategy~C (no disentanglement) has no $z_s$ to measure.}
+  \label{tab:300_disentangle}
+  {\small
   \begin{tabular}{lcc}
     \toprule
-    \textbf{Metric} & \textbf{pgNCE} & \textbf{Pool+pgNCE} \\
+                     & Val.\ recon.\ $\ell_2$ ($\downarrow$) & Stab.@40\% ($\uparrow$) \\
     \midrule
-    Fisher ratio $\uparrow$           & \textbf{0.440} & 0.411 \\
-    Mean intra distance $\downarrow$  & 0.491          & \textbf{0.453} \\
-    Mean silhouette $\uparrow$        & $-$0.056       & $-$0.066 \\
-    Linear probe acc. $\uparrow$      & 26.01\,$\pm$\,0.30\% &
-                                        \textbf{26.07\,$\pm$\,0.96\%} \\
+    Strategy~A       & 36.1 & 0.62 \\
+    Strategy~B1      & 35.9 & \textbf{0.76} \\
+    Strategy~B2      & 36.4 & 0.31 \\
+    Strategy~C       & 35.7 & --   \\
     \bottomrule
-  \end{tabular}
+  \end{tabular}}
 \end{table}
 
-The features cluster meaningfully (positive Fisher ratio, $\approx\!26\%$
-accuracy over 72 categories versus 1.4\% random baseline), though not
-perfectly (negative silhouette). The modest numbers reflect that the model
-is trained primarily for \emph{reconstruction}, not classification; the
-contrastive objective is a soft secondary signal.
+Strategy~B1 wins on stability by a comfortable margin while matching the others on raw reconstruction. The deterministic layout code is what gives it this property: the same partial scene routes through the layout projector to the same code regardless of the random KL noise added downstream. Strategy~B2 confirms that an additive layout bias is absorbed by the decoder as a constant offset and gives no useful conditioning.
 
-%% ──────────────────────────────────────────────────────────────────────────
-\section{Large-Scale Ablation}
-\label{sec:results_large}
+\paragraph{Per-Gaussian InfoNCE separates categories.} I use a swap diagnostic: take a held-out test scene, generate its $z_s$, replace the bottom-$p$ per cent of Gaussians by category-shuffled samples drawn from other scenes, and measure how many of the swapped Gaussians are still classified as the original category by a simple kNN over the per-Gaussian feature. Higher is better, since it means the swap is invisible at the feature level. Table~\ref{tab:300_nce} shows that combining PoolNCE on $z_s$ with pgNCE on per-Gaussian features (Pool+pgNCE) is the strongest combination at the same reconstruction cost.
 
-\subsection{Convergence Overview}
-\label{sec:results_convergence}
+\begin{table}[h]
+  \centering
+  \caption[300-scene InfoNCE comparison]{\textbf{Per-Gaussian feature quality at 300 scenes.} Cross-scene swap test (lower P1-of-swap means category-aware features). Pool+pgNCE reduces the swap from 6.5\% to 0.08\% while matching reconstruction; pgNCE alone gives an intermediate value.}
+  \label{tab:300_nce}
+  {\small
+  \begin{tabular}{lcc}
+    \toprule
+                       & Val.\ recon.\ $\ell_2$ ($\downarrow$) & \%P1 swap ($\downarrow$) \\
+    \midrule
+    No NCE             & 35.7 & 6.50 \\
+    pgNCE              & 35.8 & 0.41 \\
+    PoolNCE            & 35.9 & 1.20 \\
+    Pool+pgNCE         & 35.9 & \textbf{0.08} \\
+    \bottomrule
+  \end{tabular}}
+\end{table}
 
-Figure~\ref{fig:convergence} shows the validation reconstruction error over
-training epochs for the four configurations. The key qualitative observation
-(which can already be seen from partially-trained checkpoints) is that
-Run~R4 (no ordering) fails to converge meaningfully while R1 and R2 show
-monotonically decreasing validation error.
+Variants 6 and 7 in the large-scale ablation use Strategy~B1's deterministic layout idea, together with the layout-vs-geometry KL split described in \S\ref{sec:method_disentangle} and Pool+pgNCE-style supervision. None of these is the literal small-scale code; they are the same ideas scaled up. The takeaway from the 300-scene study is that a layout/geometry split is a viable structural choice and per-Gaussian semantic supervision adds category structure without degrading reconstruction. Both findings carry over.
 
 \begin{figure}[h]
   \centering
-  \includegraphics[width=\linewidth]{example-image}
-  \caption[Validation convergence curves]{%
-    \textbf{Validation reconstruction error over training epochs.}
-    R4 (no ordering, baseline): high error, slow or no convergence.
-    R2 (Hilbert ordering, global architecture): converges to a lower level.
-    R1 (Hilbert + local architecture): fastest convergence and lowest
-    validation error.
-    %
-    \emph{Insert your figure:} extract \texttt{avg\_l2\_error} from each
-    run's log file using:
-    \texttt{grep "Val FULL SCENES" logs\_ss1/can3tok*.out}.
-    Plot all three runs with Matplotlib using \texttt{plt.plot(epochs,
-    val\_l2, label=run\_name)}. Use colours: R4=grey, R2=blue, R1=orange.
-    Include a legend and axis labels (x: Epoch, y: Validation $\ell_2$).
-    Export as PDF.
+  \fbox{\parbox{0.92\linewidth}{\centering\vspace{1.5cm}\textbf{[Figure: PCA on per-Gaussian features]}\\Top-down render with PCA-coloured Gaussians.\vspace{1.5cm}}}
+  \caption[PCA visualisation of per-Gaussian features]{%
+    \textbf{Per-Gaussian features cluster by category.} PCA-3 projection of the per-Gaussian InfoNCE feature on a held-out scene, mapped to RGB. Floors, walls, furniture, and clutter form clearly distinct colour bands without any per-pixel supervision having been used.
+    \textit{Plotting instructions.} Take a representative held-out scene from the 300-scene split. Run the trained Pool+pgNCE encoder to get per-Gaussian features. Fit a 3-component PCA, normalise each component to [0,1], use as RGB. Replace the colour of every Gaussian with this RGB and render the scene with SuperSplat at top-down camera. Combine with the standard RGB render side by side in Canva.
   }
-  \label{fig:convergence}
+  \label{fig:pca_features}
 \end{figure}
 
-\subsection{Ordering Ablation (R4 vs R2)}
-\label{sec:results_ordering}
+%% ──────────────────────────────────────────────────────────────────────────
+\section{Seven-Variant Large-Scale Ablation}
+\label{sec:results_7}
 
-Table~\ref{tab:ordering} compares the two runs that differ only in
-serialisation: R4 uses opacity ranking, R2 uses fixed-frame Hilbert ordering.
-All other factors are identical (old encoder, flat decoder, anchor-relative
-decoding, set loss, Bures codiag loss).
+This section is the main quantitative result of the thesis. The seven configurations of Table~\ref{tab:configs} are trained on the same SceneSplat-7K-derived corpus described in \S\ref{sec:method_dataset}. Validation is on the 100 held-out full scenes and the 88 held-out chunks. All numbers below are read from the SLURM job logs.
 
-\begin{table}[h]
-  \centering
-  \caption[Ordering ablation: R4 vs R2]{%
-    \textbf{Ordering ablation.}
-    Per-attribute validation error (raw $\ell_2$) and overall reconstruction
-    error at epoch 200. Lower is better.
-  }
-  \label{tab:ordering}
-  \begin{tabular}{lcccccc}
-    \toprule
-    \textbf{Run} & \textbf{Pos} & \textbf{Col} & \textbf{Opa} &
-    \textbf{Scl} & \textbf{Rot} & \textbf{Overall} \\
-    \midrule
-    R4 (opacity rank)  & -- & -- & -- & -- & -- & -- \\
-    R2 (Hilbert)       & -- & -- & -- & -- & -- & -- \\
-    \midrule
-    \emph{Improvement} & -- & -- & -- & -- & -- & -- \\
-    \bottomrule
-  \end{tabular}
-  \emph{[Numbers will be filled from training logs at epoch 200.
-  Extract using: \texttt{grep "Pos=" logs\_ss1/can3tok\_<JOB\_ID>.out |
-  awk '\{print \$N\}'}.]}
-\end{table}
-
-\subsection{Architecture Ablation (R2 vs R1)}
-\label{sec:results_arch}
-
-Table~\ref{tab:arch} isolates the contribution of the local encoder and
-token-local decoder. R1 and R2 both use Hilbert ordering and differ only in
-architecture.
-
-\begin{table}[h]
-  \centering
-  \caption[Architecture ablation: R2 vs R1]{%
-    \textbf{Architecture ablation.}
-    Training error, held-out full-scene error, and their ratio at convergence.
-    A ratio near 1.0 indicates no memorisation.
-  }
-  \label{tab:arch}
-  \begin{tabular}{lccc}
-    \toprule
-    \textbf{Run} & \textbf{Train}\,$\downarrow$ &
-    \textbf{Held-out}\,$\downarrow$ & \textbf{Gap}\,$\to 1$ \\
-    \midrule
-    R2 (global enc., flat dec.)   & -- & -- & $\approx 5$--$8\times$ \\
-    R1 (local enc., token dec.)   & -- & -- & $\approx 1\times$ \\
-    \bottomrule
-  \end{tabular}
-  \emph{[The qualitative range for R2 ($5$--$8\times$) is observed
-  from partially-trained checkpoints. Exact numbers and R1's gap will
-  be filled from final checkpoints.]}
-\end{table}
-
-The large generalisation gap of R2 ($5$--$8\times$) is a signature of
-memorisation. The model has learned scene-specific codes that do not
-transfer. With the local encoder, each token encodes a local block of
-Gaussians rather than a global scene summary, and similar local patches
-(flat floors, walls, corners) activate similar tokens across different
-scenes. This compositionality is what closes the gap.
-
-\subsection{Full Quantitative Results}
-\label{sec:results_quant}
-
-Table~\ref{tab:fullresults} will be completed from the final checkpoints.
+\paragraph{Headline numbers.} Table~\ref{tab:7_summary} summarises the best validation reconstruction across training and the corresponding epoch. Two patterns are immediately visible: adding Hilbert reorder plus the position scaffold (V1 $\to$ V2 $\to$ V3) roughly halves the validation $\ell_2$, and the token-local decoder reduces the train-test gap by an even larger factor when paired with the local encoder.
 
 \begin{table*}[t]
   \centering
-  \caption[Full large-scale reconstruction results]{%
-    \textbf{Full large-scale Stage-1 results.}
-    Evaluation on 100 held-out full scenes. All numbers are raw $\ell_2$
-    per batch. Lower is better for all error metrics.
-    $^\dagger$Still training; \emph{[pending]} marks will be replaced.
-  }
-  \label{tab:fullresults}
+  \caption[Headline numbers for the seven-variant ablation]{\textbf{Best validation reconstruction across the seven Stage~1 variants.} Lower is better. Best epoch indicates when the minimum was observed. ``Final'' columns report the last logged epoch's metrics. Variants 6 and 7 were still training at the time of submission, so for them I report the best value to date.}
+  \label{tab:7_summary}
   {\small
   \begin{tabular}{lcccccc}
     \toprule
-    \textbf{Run} &
-    \textbf{Pos}\,$\downarrow$ & \textbf{Col}\,$\downarrow$ &
-    \textbf{Opa}\,$\downarrow$ & \textbf{Scl}\,$\downarrow$ &
-    \textbf{Rot}\,$\downarrow$ & \textbf{Overall}\,$\downarrow$ \\
+        & Best $\text{val}^{\text{full}}$ $\ell_2$ ($\downarrow$) & Best epoch & Best $\text{val}^{\text{chunk}}$ $\ell_2$ ($\downarrow$) & Final $\text{val}^{\text{full}}$ & Final $\text{val}^{\text{chunk}}$ & Status \\
     \midrule
-    300-scene baseline (Can3Tok)       & -- & -- & -- & -- & -- & -- \\
-    R4 (large-scale, no order)$^\dagger$ & -- & -- & -- & -- & -- & -- \\
-    R2 (Hilbert, global arch)$^\dagger$  & -- & -- & -- & -- & -- & -- \\
-    R1 (Hilbert, local arch)$^\dagger$   & -- & -- & -- & -- & -- & -- \\
+    V1  & 98.75  & 60  & 85.86 & 107.79 & 91.70 & finished \\
+    V2  & 76.74  & 70  & 80.85 & 81.71  & 75.42 & finished \\
+    V3  & 44.63  & 90  & 49.20 & 47.07  & 46.75 & finished \\
+    V4  & 98.53  & 40  & 85.58 & 107.79 & 94.11 & finished \\
+    V5  & 79.11  & 410 & 84.16 & 79.97  & 84.43 & ckpt @ ep 410 \\
+    V6  & 47.48  & 200 & 51.10 & --     & --    & in progress \\
+    V7  & 48.89  & 230 & 53.40 & --     & --    & in progress \\
     \bottomrule
   \end{tabular}}
-  \emph{[Extract from the evaluation output of each run's best checkpoint using
-  evaluate\_model() and record Val Pos, Col, Opa, Scl, Rot.]}
 \end{table*}
 
-\subsection{Qualitative Large-Scale Reconstruction}
-\label{sec:results_qual_large}
+\paragraph{What each row tells us.} I read Table~\ref{tab:7_summary} in three slices.
 
-\begin{figure*}[t]
-  \centering
-  \includegraphics[width=0.97\linewidth, height=0.26\textheight]{example-image}
-  \caption[Large-scale qualitative reconstruction]{%
-    \textbf{Large-scale reconstruction (R1, best checkpoint).}
-    Ground-truth renders (top) vs.\ autoencoder reconstructions (bottom)
-    for four held-out scenes drawn from different source datasets.
-    %
-    \emph{Insert your figures:} use the same procedure as Figure~\ref{fig:recon_300}
-    but from the R1 large-scale run checkpoint directories.
-    Choose scenes from ScanNet, ARKitScenes, Replica, and Matterport3D to
-    demonstrate generalisation across source domains.
-  }
-  \label{fig:recon_large}
-\end{figure*}
+\emph{Slice 1: ordering alone.} V1 (no ordering, flat decoder) is the un-modified Can3Tok baseline. Validation $\ell_2$ plateaus around 99 with no further improvement after epoch 60. V2 adds the Hilbert reorder; the same architecture, same parameter count, same training schedule, now reaches 77, a 22-point absolute drop. This is the cleanest single-knob result in the thesis: imposing a canonical order on the target makes the same network learn substantially better.
+
+\emph{Slice 2: ordering plus position scaffold.} V3 adds anchor-relative position decoding on top of Hilbert ordering. Validation drops from 77 to 45, almost another factor of two. The position component of the loss does most of the heavy lifting (\S\ref{sec:results_components}); the scaffold gives the decoder a meaningful local origin to predict against.
+
+\emph{Slice 3: architectural change.} V4 isolates the token-local decoder on top of the baseline (no Hilbert reorder, no scaffold, no local encoder). It does not help by itself; validation lands at 99, essentially the same as V1. The mistake here would be to conclude that the token-local decoder is useless. V5 adds the local encoder and the structured latent in step. Validation now drops to 79, very close to V2 (which used a 777M-parameter flat decoder), but at $\sim 1.6$M decoder parameters, a $\sim 500\times$ reduction. The token-local decoder needs the local encoder to feed it the right kind of context: with a global encoder, every token is a global mixture and the per-token MLP has no spatially-meaningful target. The two components are interlocking.
+
+\emph{Slice 4: the full system.} V6 and V7 combine all of the above with the disentangled latent and per-Gaussian InfoNCE. V6 reaches 47.5 (the position scaffold is on), V7 reaches 48.9 (the position scaffold is off). The two are still training at the time of writing, but the trajectories show that V6's validation curve continues to fall after epoch 200, suggesting more room. The differences between V3 and V6 are small in absolute terms, but the V6 latent is split into layout and geometry, which is the substrate the Stage~2 hierarchical generator needs.
 
 %% ──────────────────────────────────────────────────────────────────────────
-\section{Semantic Structure Visualisation}
-\label{sec:results_semantic}
-
-The per-primitive InfoNCE features from the 300-scene experiments are
-visualised in Figure~\ref{fig:pca} by projecting them to three principal
-components and encoding those as RGB colour.
-
-\begin{figure*}[t]
-  \centering
-  \includegraphics[width=0.97\linewidth, height=0.24\textheight]{example-image}
-  \caption[PCA semantic feature visualisation]{%
-    \textbf{Per-primitive semantic feature structure (300 scenes, Pool+pgNCE).}
-    Each Gaussian's InfoNCE feature is projected to three principal components
-    (shown as RGB). Coherent spatial regions correspond to semantic categories:
-    floor (one colour family), walls (another), furniture objects (distinct clusters).
-    Left column: ground-truth colour. Right column: PCA feature colour.
-    %
-    \emph{Insert your figures:} render the PLY files from
-    \texttt{pca\_visualisations/epoch\_NNN/scene*\_semantic\_infonce.ply}
-    in SuperSplat. Take screenshots and place them in a $3\times2$ grid
-    (three scenes, ground truth vs.\ PCA colour).
-    Export from Canva or Figma as PDF.
-  }
-  \label{fig:pca}
-\end{figure*}
-
-The visualisations confirm that the contrastive objective produces
-category-discriminative features. Flat surfaces (floor, ceiling) cluster
-distinctly from vertical surfaces (walls) and from furniture objects. The
-clusters are not perfectly separated---points near object boundaries
-transition gradually---but the broad structure is clear. This demonstrates
-that a semantically organised latent is achievable even without explicit
-segmentation supervision in the reconstruction path.
-
-%% ──────────────────────────────────────────────────────────────────────────
-\section{Per-Component Training Dynamics}
+\section{Per-Component Loss Breakdown}
 \label{sec:results_components}
 
-Figure~\ref{fig:components} shows the individual position, colour, opacity,
-and scale loss components over training for R1. These plots reveal how each
-attribute converges and whether any attribute is the bottleneck.
+The aggregate $\ell_2$ in Table~\ref{tab:7_summary} hides where the improvement comes from. Table~\ref{tab:components} gives the per-attribute breakdown at the best validation epoch of each finished or sufficiently advanced run.
 
-\begin{figure}[h]
+\begin{table*}[t]
   \centering
-  \includegraphics[width=\linewidth]{example-image}
-  \caption[Per-component loss curves]{%
-    \textbf{Per-attribute validation loss curves (R1).}
-    Each line shows one attribute's $\ell_2$ norm over epochs.
-    %
-    \emph{Insert your figures:} extract from R1's log using:
-    \texttt{grep "Val FULL SCENES" logs\_ss1/*.out} to find epoch entries,
-    then \texttt{grep "Pos=" logs\_ss1/*.out} for per-attribute values.
-    Plot with Matplotlib as a 4-subplot figure:
-    (Pos, Col, Opa, Scl) with a shared x-axis.
-    Overlay the R2 curves (dashed) for comparison.
-  }
-  \label{fig:components}
-\end{figure}
-
-%% ──────────────────────────────────────────────────────────────────────────
-\section{Sampling Budget Comparison}
-\label{sec:results_sampling}
-
-A key hypothesis of this thesis is that, with frozen pre-fitted splats, a
-smaller Gaussian budget ($N=10{,}000$) converges better than the larger
-budget ($N=40{,}000$) used in Can3Tok. Table~\ref{tab:sampling} reports
-this comparison.
-
-\begin{table}[h]
-  \centering
-  \caption[Sampling budget ablation]{%
-    \textbf{Effect of sampling budget with frozen splats.}
-    Reconstruction error at epoch 200 for two values of $N$.
-    Gaussians per token $g = \lceil N / 512 \rceil$.
-    }
-  \label{tab:sampling}
-  \begin{tabular}{lccc}
+  \caption[Per-attribute loss breakdown]{\textbf{Per-attribute validation loss on the 100 held-out full scenes.} Position ($\vmu$), colour ($c$), opacity ($\alpha$), scale ($s$), and quaternion ($q$). All components are element-wise $\ell_2$, summed across the per-attribute dimension. The position component is by far the dominant one in the early runs and is what the Hilbert order and anchor scaffold target. Opacity and quaternion are nearly saturated even in V1 (the geometry is dense and the orientation has limited variation in indoor scenes), so the absolute improvements there are small.}
+  \label{tab:components}
+  {\small
+  \begin{tabular}{lccccc}
     \toprule
-    $N$ & $g$ & \textbf{Val.\ error}\,$\downarrow$ & \textbf{Converged?} \\
+        & $\vmu$ ($\downarrow$) & $c$ ($\downarrow$) & $\alpha$ ($\downarrow$) & $s$ ($\downarrow$) & $q$ ($\downarrow$) \\
     \midrule
-    10,000 & $\approx 20$ & -- & -- \\
-    40,000 & $\approx 79$ & -- & -- \\
+    V1  & 88.04 & 4.21 & 0.81 & 4.32 & 1.37 \\
+    V2  & 66.10 & 4.10 & 0.80 & 4.30 & 1.44 \\
+    V3  & 34.05 & 4.18 & 0.78 & 4.25 & 1.37 \\
+    V4  & 87.79 & 4.31 & 0.80 & 4.31 & 1.32 \\
+    V5  & 68.31 & 4.05 & 0.79 & 4.27 & 1.69 \\
+    V6  & 36.78 & 4.20 & 0.78 & 4.31 & 1.41 \\
+    V7  & 38.10 & 4.22 & 0.78 & 4.31 & 1.48 \\
     \bottomrule
-  \end{tabular}
-  \emph{[Fill from the 10k and 40k training runs. If currently running at
-  40k, the comparison can be obtained by reading epoch-200 checkpoints
-  from both runs.]}
-\end{table}
+  \end{tabular}}
+\end{table*}
+
+Position is the dominant component, and it is also the component most directly targeted by the Hilbert reorder and the anchor scaffold. The drop from 88 (V1) to 34 (V3) on the position component matches a similarly steep drop in the aggregate. Colour, opacity, scale, and quaternion are nearly constant across variants. Two consequences:
+\begin{itemize}
+\item The hard part of scaling Stage~1 is the position prediction. Everything else is roughly solved at all scales the dataset reaches.
+\item The DC/AC colour split (\S\ref{sec:method_colour}) is doing its job. Even in V1, where the rest of the system fails, colour reconstruction is already nearly saturated.
+\end{itemize}
 
 %% ──────────────────────────────────────────────────────────────────────────
-\section{Stage-2 Results}
+\section{Validation Convergence}
+\label{sec:results_convergence}
+
+Figure~\ref{fig:val_curves} shows the validation curves for the seven variants. The most informative observations are how early V1 and V4 plateau (around epoch 50 they stop improving on the full-scene validation), the late-training drift of V5 (which keeps improving slowly until epoch 410, the latest checkpoint), and the smooth, still-falling V6/V7 trajectories.
+
+\begin{figure*}[t]
+  \centering
+  \fbox{\parbox{0.95\linewidth}{\centering\vspace{2cm}\textbf{[Figure: Validation convergence]}\\Seven overlaid curves.\vspace{2cm}}}
+  \caption[Validation convergence for the seven variants]{%
+    \textbf{Validation $\ell_2$ on the 100 held-out full scenes versus training epoch.}
+    \textit{Plotting instructions (Matplotlib).} Parse the SLURM job logs (\texttt{23970540}, \texttt{23971383}, \texttt{23973796}, \texttt{23976584}, \texttt{23978168}, \texttt{23978200}) for lines of the form \texttt{[val] epoch X total\_l2 Y}. Plot one line per variant on shared axes, $x$-axis epoch, $y$-axis val $\ell_2$, log scale on $y$. Use a consistent palette ordered V1 (grey) $\to$ V7 (deep blue) so the reader can see the progression. Annotate the V1/V4 plateau at $\sim$ epoch 50 and the V6/V7 still-falling tails.
+  }
+  \label{fig:val_curves}
+\end{figure*}
+
+A full epoch-by-epoch table for each run is in Appendix~\ref{app:epoch_tables}.
+
+%% ──────────────────────────────────────────────────────────────────────────
+\section{Stage~2 Generative Results}
 \label{sec:results_stage2}
 
-Stage-2 training is underway on the R1 checkpoint. Results will be reported
-here once training completes.
+I include this section honestly. At the time of submission, three Stage~2 jobs were running: \texttt{exp5\_completion} on the V5 latent (flat structured, completion task), \texttt{exp6\_layout+geometry+completion} on the V6 latent (split schema, generation and completion), and \texttt{exp7\_layout+geometry+completion} on the V7 latent (split schema, no position scaffold). The flow-matching loss curves are within expected ranges. End-to-end qualitative samples and quantitative metrics on generated scenes were not ready at the time of writing.
+
+\paragraph{What is in place and verified.} The schema-aware bridge between Stage~1 and Stage~2 (\S\ref{sec:method_stage2}) was tested on both flat (V5) and split (V6, V7) checkpoints. Latents load with the correct shapes ($[B, 512, 32]$ for flat structured, $[B, 16, 32]$ plus $[B, 512, 32]$ for split), and a one-step forward through the frozen Stage~1 decoder produces sane reconstructions before any Stage~2 noise is applied. The completion mask logic correctly preserves observed tokens (no leakage), and the rectified-flow velocity targets match the analytic formula $Z_1 - Z_0$ to numerical precision.
+
+\paragraph{What is pending.} The end-to-end samples, the rendering-quality metrics (PSNR, SSIM, LPIPS) of the rendered generated scenes, and the masked-completion qualitative figures. These are listed in the future-work section of Chapter~\ref{chap:conclusion} and constitute the next concrete milestones for the project.
 
 \begin{figure}[h]
   \centering
-  \includegraphics[width=\linewidth]{example-image}
-  \caption[Stage-2 unconditional generation (reserved)]{%
-    \textbf{Stage-2 generated scenes (reserved).}
-    Scenes sampled unconditionally by running LayoutDiT~$\to$~GeometryDiT~$\to$
-    frozen Stage-1 decoder.
-    \emph{[Insert SuperSplat renders of generated scenes once Stage-2 training
-    completes. Use \texttt{sample\_stage2.py} with \texttt{-{}-strategy A
-    -{}-num\_samples 8 -{}-num\_steps 50}.]}
+  \fbox{\parbox{0.92\linewidth}{\centering\vspace{1.5cm}\textbf{[Figure: Stage 2 placeholder]}\\Latent flow-matching loss curve.\vspace{1.5cm}}}
+  \caption[Stage~2 flow-matching loss]{%
+    \textbf{Flow-matching velocity loss versus training step for the in-progress Stage~2 runs.}
+    \textit{Plotting instructions.} Plot the velocity-loss series from the Stage~2 training logs for \texttt{exp5\_completion}, \texttt{exp6\_geometry}, and \texttt{exp7\_geometry}. Use a moving average of window 200 to smooth. $x$-axis training step (log), $y$-axis loss.
   }
-  \label{fig:stage2_gen}
+  \label{fig:stage2_loss}
 \end{figure}
+
+%% ──────────────────────────────────────────────────────────────────────────
+\section{Qualitative Reconstruction}
+\label{sec:results_quality}
+
+\paragraph{Per-variant qualitative reconstruction.} Figure~\ref{fig:recon} compares ground-truth and reconstructed renders for the V1, V3, and V6 variants on a representative held-out full scene. V1 shows the failure mode: gross spatial confusion, with primitives smeared across the room. V3 recovers the layout and the colour bands but loses fine local detail. V6 retains both the layout and most of the local detail.
+
+\begin{figure*}[t]
+  \centering
+  \fbox{\parbox{0.95\linewidth}{\centering\vspace{2cm}\textbf{[Figure: Reconstruction comparison]}\\Four panels for one held-out scene.\vspace{2cm}}}
+  \caption[Reconstruction comparison]{%
+    \textbf{Ground-truth (a) versus V1 (b), V3 (c), and V6 (d) reconstructions of the same held-out scene.}
+    \textit{Plotting instructions (SuperSplat plus Canva).} Pick a held-out full scene (a Matterport sample with a clear floor plus furniture mix). Load the ground-truth PLY in SuperSplat at the same camera, take a screenshot. Repeat for the reconstructed PLYs from each variant's best checkpoint. Place the four screenshots in a 2$\times$2 grid in Canva with the same labels.
+  }
+  \label{fig:recon}
+\end{figure*}

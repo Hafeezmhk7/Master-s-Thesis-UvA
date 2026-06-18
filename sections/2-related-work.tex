@@ -1,134 +1,56 @@
 \chapter{Related Work}
 \label{chap:related}
 
-This chapter reviews four bodies of work that directly bear on what we do:
-explicit 3D scene representations, generative models for 3D content, learning
-on unordered point sets, and semantically structured representations. Each
-section closes by identifying the gap that motivates our contribution.
+This chapter situates the thesis in four bodies of work. I cover explicit 3D scene representations and where 3DGS sits among them; latent generative modelling of 3D content, with attention to the two-stage VAE+generator recipe; learning on unordered sets and the use of space-filling curves to impose a canonical order; and contrastive plus disentangled representation learning, which informs my small-scale semantic experiments. Each section closes by stating the specific gap the thesis addresses.
 
 %% ──────────────────────────────────────────────────────────────────────────
 \section{3D Scene Representations}
 \label{sec:rw_repr}
 
 \paragraph{Neural radiance fields.}
-Mildenhall et al.~\citeyearpar{mildenhall2020nerf} proposed NeRF, a continuous
-volumetric scene representation encoded in the weights of a coordinate-conditioned
-MLP. NeRF produces photorealistic renders and became the dominant approach for
-novel-view synthesis. However, rendering is slow (requiring hundreds of
-network evaluations per ray), and the per-scene weight representation is
-difficult to use generatively---there is no explicit parameter to predict.
+NeRF \citep{mildenhall2020nerf} represents a scene as a continuous volumetric function encoded in the weights of a coordinate-conditioned MLP. It produces photorealistic novel views and remained the dominant approach for several years. Two limitations hold it back as a generative target: rendering is slow because each ray needs hundreds of network evaluations, and the per-scene weight representation has no explicit parameter for a network to predict on a scene level.
 
 \paragraph{3D Gaussian Splatting.}
-Kerbl et al.~\citeyearpar{kerbl2023gaussian} proposed 3D Gaussian Splatting (3DGS),
-representing a scene as a set of anisotropic Gaussian primitives rasterised
-by alpha-compositing. The approach achieves real-time rendering at comparable
-quality to NeRF, and the explicit structure opens a path towards direct
-network-based generation. Each primitive carries:
-\begin{itemize}
-  \item a position $\vmu \in \bR^3$,
-  \item a colour $c \in \bR^3$ (DC spherical-harmonic coefficient),
-  \item an opacity $\alpha \in (0,1)$,
-  \item a scale $s \in \bR^3_+$ and a unit quaternion $q \in \bS^3$ that
-        together define the anisotropic covariance
-        $\vsigma = R(q)\,\mathrm{diag}(s^2)\,R(q)^\top$.
-\end{itemize}
-Scaffold-GS~\citep{lu2024scaffold} reduces the structural redundancy of a
-dense 3DGS fit by anchoring Gaussian attributes to a sparse neural scaffold,
-predicting local displacements rather than absolute parameters. We borrow
-the anchor-plus-local-offset idea in our decoder
-(\S\ref{sec:method_anchor}).
+3DGS \citep{kerbl2023gaussian} represents a scene as a set of anisotropic Gaussian primitives rasterised by alpha compositing. The approach renders in real time, matches NeRF on novel-view synthesis, and exposes an explicit per-primitive parameterisation. Each primitive has a position $\mu \in \bR^3$, a colour $c \in \bR^3$ (the DC spherical-harmonic coefficient, ignoring higher-order view-dependent terms here), an opacity $\alpha \in (0,1)$, a per-axis scale $s \in \bR^3_+$, and a unit quaternion $q$ defining the orientation. The covariance matrix is then $\Sigma = R(q)\,\mathrm{diag}(s^2)\,R(q)^\top$.
 
-\paragraph{Gap.} Despite the explicitness of 3DGS, scene-level \emph{generative}
-modelling requires a compact organised latent, which neither 3DGS itself nor
-its extensions directly provide.
+Scaffold-GS \citep{lu2024scaffold} reduces redundancy in a dense 3DGS fit by anchoring per-primitive attributes to a sparser neural scaffold, predicting offsets relative to anchor points rather than absolute positions. This anchor-plus-offset structure is what motivates the position decoding choice in \S\ref{sec:method_anchor}. GaussianCube \citep{zhang2024gaussiancube} takes a different route: it fits a fixed Gaussian count at the object level and then transports the primitives onto a regular voxel grid, so a standard convolutional diffusion model can operate on a 3D tensor. Both of these object-level approaches inform my own per-token anchor decoding, but neither extends directly to unbounded indoor scenes.
+\paragraph{Gap.} 3DGS gives an explicit representation, but turning it into a generative target at scene level requires a compact, organised latent. Neither 3DGS itself nor Scaffold-GS provides that latent; building it is the goal of Stage~1 in this thesis.
 
 %% ──────────────────────────────────────────────────────────────────────────
 \section{Latent Generative Modelling of 3D Content}
 \label{sec:rw_gen}
 
-\paragraph{Two-stage latent generation.}
-The standard two-stage recipe~\citep{rombach2022ldm} trains a VAE to compress
-the signal, then trains a generative model---originally DDPM~\citep{ho2020ddpm},
-now more commonly flow matching~\citep{lipman2023flowmatching,liu2023rectified}
-with a transformer backbone~\citep{peebles2023dit,ma2024sit}---in the
-latent space. This recipe decouples the complexity of the raw representation
-from the generative learning problem.
+\paragraph{The two-stage recipe.}
+A widely used recipe for high-resolution generation is to first train a VAE to compress the signal into a latent \citep{kingma2014vae}, and then train a generative model in that latent space \citep{rombach2022ldm}. The generative half has shifted from DDPM \citep{ho2020ddpm} to flow matching \citep{lipman2023flowmatching, liu2023rectified}, both typically realised with a transformer backbone such as DiT \citep{peebles2023dit} or SiT \citep{ma2024sit}. The latent decouples the awkward structure of the raw signal from the easier learning problem of modelling a tame distribution of token sequences.
 
 \paragraph{Object-level 3D generation.}
-LION~\citep{zeng2022lion} applies hierarchical latent diffusion to point cloud
-objects. Michelangelo~\citep{zhao2023michelangelo} uses a cross-attention
-Perceiver~\citep{jaegle2021perceiver,jaegle2022perceiverio} to encode a 3D
-shape into a fixed token set aligned with image and text embeddings;
-its shape-latent VAE is the architectural ancestor of ours.
-GaussianCube~\citep{zhang2024gaussiancube} fits a fixed-count object-level
-Gaussian set, transports it to a regular voxel grid via optimal transport
-so a standard convolutional diffusion model can operate on it. Its
-grid-structuring insight---position as a structural reference plus a small
-offset---is a close analogue of our anchor-relative decoder, though the
-dense grid assumption does not transfer to unbounded scenes.
+LION \citep{zeng2022lion} applies hierarchical latent diffusion to point cloud objects. Michelangelo \citep{zhao2023michelangelo} uses a cross-attention Perceiver \citep{jaegle2021perceiver, jaegle2022perceiverio} to encode a 3D shape into a fixed set of latent tokens aligned with image and text embeddings; its shape-latent VAE is the architectural ancestor of mine. GaussianCube \citep{zhang2024gaussiancube} structures the per-primitive prediction into a position-plus-offset form so a dense convolutional model can operate on it. All three are object-level, with bounded extent and small fixed primitive counts.
 
 \paragraph{Scene-level 3DGS.}
-Can3Tok~\citep{gao2025can3tok} is the direct predecessor of this work. It
-encodes a full 3DGS scene with a Perceiver cross-attention bottleneck and
-decodes the Gaussian attributes with a transformer and flat MLP. Can3Tok
-demonstrated convergence on datasets of a few hundred scenes per training run
-and showed conditional generation as an application. SceneSplat~\citep{li2025scenesplat}
-introduced the first generalised feed-forward scene encoder, pre-trained on
-SceneSplat-7K---7,916 indoor 3DGS scenes with per-Gaussian ScanNet-72
-category labels---for open-vocabulary scene understanding. We consume
-SceneSplat-7K's per-Gaussian labels for our semantic experiments.
+Can3Tok \citep{gao2025can3tok} is the direct predecessor of this thesis. It uses a Perceiver-style cross-attention encoder to compress a scene's Gaussian primitives into a fixed-size latent, and a transformer-plus-MLP decoder to reconstruct the per-primitive parameters. Can3Tok was demonstrated on a few hundred scenes and showed conditional generation as a downstream application. SceneSplat \citep{li2025scenesplat} introduces the first generalisable feed-forward 3DGS encoder, pre-trained on its accompanying SceneSplat-7K dataset of 7{,}916 indoor 3DGS scenes; the dataset comes with per-Gaussian ScanNet-72 \citep{dai2017scannet} category labels. SceneSplat-7K is the training corpus throughout this thesis. SceneSplat++ \citep{ma2025scenesplatpp} extends the dataset and benchmarks language-aligned Gaussian Splatting more thoroughly.
 
-\paragraph{Gap.} What is required to scale a scene-level 3DGS VAE from hundreds
-to thousands of scenes, and why naive scaling fails, has not been studied.
+\paragraph{Gap.} What is required to scale a scene-level 3DGS VAE from hundreds to several thousand pre-fitted scenes, and which architectural choices control whether it converges, has not been systematically studied. The seven-experiment ablation in Chapter~\ref{chap:results} is my answer.
 
 %% ──────────────────────────────────────────────────────────────────────────
 \section{Learning on Unordered Sets and Space-Filling Curves}
 \label{sec:rw_sets}
 
 \paragraph{Permutation-invariant encoders.}
-PointNet~\citep{qi2017pointnet} established symmetric aggregation for point
-clouds. The Perceiver~\citep{jaegle2021perceiver} generalises this through
-cross-attention to a fixed set of learned queries. These give permutation
-invariance on the encoder side at no cost. The problem reappears at the
-decoder: any loss comparing predicted slot $i$ to target slot $i$ depends on
-an arbitrary ordering.
+PointNet \citep{qi2017pointnet} established symmetric aggregation as a way to produce permutation-invariant features over point sets. The Perceiver \citep{jaegle2021perceiver} generalises this by cross-attending a small learned query set against the input, yielding a fixed-size latent that is invariant to input permutation. Permutation invariance is cheap on the encoder side; the difficulty reappears on the decoder side, where any element-wise reconstruction loss compares predicted slot $i$ to target slot $i$ and so implicitly fixes an ordering.
 
-\paragraph{Canonical ordering via space-filling curves.}
-A complementary approach fixes a canonical order rather than handling
-permutation invariance in the loss. Point Transformer V3~\citep{wu2024ptv3}
-serialises point cloud tokens along the Hilbert space-filling
-curve~\citep{skilling2004hilbert} for windowed attention, finding that the
-Hilbert curve's superior locality---consecutive indices are always spatially
-adjacent, unlike the Z-order (Morton) curve where a high-order bit flip
-causes large spatial jumps---gives better downstream performance. This
-locality property is exactly what we need for a slot-to-position
-reconstruction target to be learnable.
+\paragraph{Canonical orderings via space-filling curves.}
+Rather than handle permutation in the loss, a complementary approach is to fix a canonical order on the data. Point Transformer V3 \citep{wu2024ptv3} serialises point cloud tokens along the Hilbert space-filling curve \citep{skilling2004hilbert} and shows that this ordering, with its tight locality property (consecutive indices remain spatially adjacent), gives better downstream results than the alternatives such as Z-order (Morton) curves, where high-order bit flips cause long spatial jumps. The same idea, but pushed onto the reconstruction \emph{target}, is the central mechanism behind RQ1 in this thesis.
 
-\paragraph{Gap.} Canonical serialisation is established for point cloud
-processing but has not been applied to the 3DGS reconstruction target
-in a way that interacts with a fixed-frame positional decoder.
+\paragraph{Gap.} Canonical serialisation is well known on the processing side of 3D learning but, to the best of my knowledge, has not been used with a fixed-frame coordinate system to make the per-slot 3DGS regression target identifiable for a generative VAE. Doing this in concert with a per-token spatial anchor is what makes the slot-aligned loss learnable in my setup.
 
 %% ──────────────────────────────────────────────────────────────────────────
 \section{Semantic and Disentangled Representations}
 \label{sec:rw_sem}
 
 \paragraph{Contrastive learning.}
-Self-supervised contrastive learning~\citep{oord2018cpc,chen2020simclr} has
-demonstrated that pulling together similar instances and pushing apart
-dissimilar ones in embedding space produces rich, transferable features.
-The InfoNCE objective~\citep{oord2018cpc} is the standard tool; we adapt it
-to the per-Gaussian level for our semantic experiments, using per-Gaussian
-ScanNet-72 labels from SceneSplat-7K as the positive-pair criterion.
+Self-supervised contrastive learning \citep{oord2018cpc, chen2020simclr} learns features by pulling together related samples (positives) and pushing apart unrelated ones (negatives) in embedding space. The InfoNCE objective \citep{oord2018cpc} is the standard tool. I adapt it in two forms in this thesis: a per-Gaussian variant that uses the per-Gaussian ScanNet-72 labels from SceneSplat-7K as the positive criterion, and a scene-level variant that uses the scene's label-distribution histogram.
 
 \paragraph{Disentangled latent representations.}
-The $\beta$-VAE~\citep{higgins2017betavae} and its successors attempt to
-separate independent factors of variation in the latent space. Locatello
-et al.~\citeyearpar{locatello2019challenging} showed that fully unsupervised
-disentanglement is unidentifiable without inductive bias, motivating our
-use of weak structural supervision (auxiliary heads and cross-reconstruction
-losses) rather than unsupervised disentanglement.
+$\beta$-VAE \citep{higgins2017betavae} attempts to disentangle independent factors of variation in the latent by reweighting the KL term in the VAE objective. Locatello et al.\ \citep{locatello2019challenging} show that unsupervised disentanglement is in general unidentifiable without inductive bias, which is why my small-scale experiments rely on structural inductive bias (a layout/geometry split with auxiliary heads and cross-reconstruction) rather than on KL reweighting alone.
 
-\paragraph{Gap.} Dense per-Gaussian semantic labels for 3DGS scenes are now
-available via SceneSplat-7K~\citep{li2025scenesplat}, but have only been
-used for discriminative scene understanding, not to add semantic structure
-to a generative latent.
+\paragraph{Gap.} Per-Gaussian semantic labels for 3DGS scenes have become available with SceneSplat-7K \citep{li2025scenesplat}. So far they have been used for discriminative scene understanding rather than to add semantic structure to a generative latent. My 300-scene exploration in \S\ref{sec:results_300} is a first look at how that supervision interacts with a Stage~1 latent designed for downstream generation.

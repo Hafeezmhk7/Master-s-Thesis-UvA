@@ -5,7 +5,11 @@
 %        3D Gaussians
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-\documentclass{mscaithesis}
+\documentclass[license]{mscaithesis}
+\raggedbottom
+\makeatletter
+\@openrightfalse
+\makeatother
 
 \usepackage{amssymb}
 \usepackage{amsfonts}
@@ -32,6 +36,7 @@
 \newcommand{\vmu}{\boldsymbol{\mu}}
 \newcommand{\vsigma}{\boldsymbol{\Sigma}}
 \newcommand{\todo}[1]{\textcolor{red}{[TODO: #1]}}
+\newcommand{\repo}{\textcolor{blue}{\url{https://github.com/Hafeezmhk7/Semantic-Scene-Completion.git}}}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % METADATA
@@ -40,11 +45,11 @@
 \title{Semantic Scene Completion with Latent\\
        Modeling of Scene-Level 3D Gaussians}
 
-\date{2026/09/01}  % TODO: update to actual submission date
+\date{2026/06/19}  % TODO: update to actual submission date
 
 \author{Mohammad Hafeez \textsc{Khan}}
 \studentnumber{15549089}
-\period{November 2025 -- September 2026}
+\period{January 2025 -- May 2026}
 \credits{36 ECTS}
 \examiner{Dr. Shaodi You}   % Fill from Datanose
 \dailysupervisor{~Yue Li}
@@ -58,7 +63,9 @@
 
     \chapter*{Abstract}
         \begin{adjustwidth}{4cm}{4cm}
-            % \input{sections/0-abstract}
+            Photorealistic three-dimensional scene generation has, in the past two years, become both more attractive and more tractable thanks to 3D Gaussian Splatting (3DGS). A natural way to build a generative model on top of this representation is the standard two-stage recipe: first compress scenes into a structured latent with a variational autoencoder, then learn a flow-matching or diffusion model in that latent space. Existing work has shown this is possible at the level of small object-centric collections of a few hundred scenes. Scaling the same recipe up to several thousand pre-fitted indoor scenes is what this thesis sets out to study.
+
+I begin from the architecture of Can3Tok \citep{gao2025can3tok} and use the SceneSplat-7K dataset \citep{li2025scenesplat} for training. Through a controlled ablation of seven Stage~1 variants, I show that two simple choices control whether the autoencoder converges or memorises at scale: (1) imposing a fixed-frame Hilbert ordering on the input Gaussians, which makes the slot-aligned reconstruction target identifiable, and (2) replacing the global flat decoder bottleneck with a windowed local encoder paired with a shared per-token MLP. Together they bring validation reconstruction down from a non-convergent regime to a level where qualitative reconstruction of held-out scenes becomes meaningful. A small-scale (300-scene) exploration of latent disentanglement and per-Gaussian contrastive supervision motivates a schema-aware Stage~2 design: a hierarchical flow-matching generator with a layout transformer and a geometry transformer for the disentangled variants, and a single scene-level transformer for the flat variants. Stage~2 training and the corresponding scene completion experiments are in progress at the time of writing.
         \end{adjustwidth}
 
     \tableofcontents
@@ -83,3 +90,29 @@
     \include{sections/7-appendix}
 
 \end{document}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
