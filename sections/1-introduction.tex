@@ -1,68 +1,183 @@
 \chapter{Introduction}
-\label{sec:introduction}
+\label{chap:intro}
 
-% ---------------------------------------------------------------------
-\section{Context and Motivation}
-% ---------------------------------------------------------------------
+%% ──────────────────────────────────────────────────────────────────────────
+\section{Motivation}
+\label{sec:intro_motivation}
 
-Generative modeling of three-dimensional content has progressed rapidly, but almost all of that progress has been confined to the \emph{object} level. Methods that synthesize single shapes or assets from text or images now produce high-quality, diverse, and semantically faithful results~\cite{zhao2023michelangelo,zeng2022lion,zhang2024gaussiancube}. The reason is largely infrastructural: object generators are trained on curated collections of watertight meshes or point clouds that live in a \emph{bounded, canonical} coordinate frame, so a generative model can learn a clean mapping from a prior distribution to a well-behaved data manifold. Whole \emph{scenes} enjoy none of these conveniences. A scene is unbounded, its scale is inconsistent from one capture to the next, it mixes dozens of object categories, and it has no canonical pose or origin. Feedforward scene-level generation has therefore remained comparatively unexplored~\cite{gao2025can3tok}.
+The ability to generate or complete three-dimensional scenes is one of the
+more ambitious goals in computer vision and graphics. Applications span
+rapid content creation, embodied-AI simulation, autonomous navigation testing,
+and robot planning in unseen environments. Progress towards this goal has
+accelerated in recent years, partly because the representation of 3D scenes has
+matured considerably.
 
-At the same time, the representation in which scenes are captured has changed. 3D Gaussian Splatting (3DGS)~\cite{kerbl2023gaussian} has become the de facto standard for photorealistic, real-time scene reconstruction, displacing neural radiance fields~\cite{mildenhall2020nerf} in many applications because it renders faster and is an explicit primitive-based representation. A 3DGS scene is an unordered \emph{set} of anisotropic Gaussian primitives, each carrying a position, an anisotropic covariance (parameterized as a rotation and a scale), an opacity, and a view-dependent colour. The explicitness of 3DGS is precisely what makes it attractive as a substrate for generative modeling: unlike an implicit field, the primitives can in principle be produced directly by a network. The difficulty is that a scene contains hundreds of thousands to millions of such primitives, arranged with no inherent order and fitted by an under-constrained optimization, so the raw representation is far from a tidy generative target.
+3D Gaussian Splatting~\citep{kerbl2023gaussian} has become the dominant
+representation for photorealistic scene reconstruction. A scene is modelled as
+a set of anisotropic Gaussian splats, each carrying a position, an opacity, a
+colour, and an anisotropic covariance parameterised by a rotation and a scale.
+The representation renders in real time, matches or exceeds the quality of
+earlier implicit approaches~\citep{mildenhall2020nerf}, and is explicitly
+structured, meaning a network can in principle produce the primitives
+directly rather than inferring them from a coordinate query.
 
-A natural recipe, proven repeatedly in 2D and in object-level 3D, is the two-stage \emph{latent generative} paradigm~\cite{rombach2022ldm,zeng2022lion}: first train an autoencoder that compresses the raw signal into a compact, regularized latent space, then train a generative model (a diffusion or flow-matching network) in that latent space. The autoencoder absorbs the nuisance complexity of the raw signal and exposes a smooth, lower-dimensional manifold that the second-stage generator can learn efficiently. Applying this recipe to scene-level 3DGS requires, as its foundation, a \emph{scene-level 3DGS variational autoencoder} (VAE): an encoder that maps an entire Gaussian scene into a structured latent, and a decoder that reconstructs the scene from it.
+Yet despite this progress in representation, scene-level 3DGS \emph{generation}
+remains largely unexplored. The standard recipe for generation in neighbouring
+domains is well-established: first compress the raw signal into a smooth,
+compact latent space with a variational autoencoder~\citep{kingma2014vae},
+then train a generative model on that latent~\citep{rombach2022ldm,
+ho2020ddpm,lipman2023flowmatching}. This recipe has been proven at the object
+level for 3D content~\citep{zeng2022lion,zhang2024gaussiancube,zhao2023michelangelo},
+but scaling it to whole scenes is a different problem. A scene contains
+hundreds of thousands of unordered Gaussian primitives, spans an unbounded
+volume, mixes dozens of object categories, and comes with no canonical
+coordinate frame or ordering. Building the scene-level VAE that would underpin
+this recipe is the central challenge this thesis addresses.
 
-Building such an autoencoder is the subject of this thesis. Our point of departure is Can3Tok~\cite{gao2025can3tok}, the first VAE shown to encode scene-level 3DGS into a low-dimensional latent that generalizes to novel scenes, where prior autoencoders failed to converge on even a few hundred scenes. Can3Tok establishes that the problem is solvable in principle. Two questions, however, remain open and motivate our work. First, Can3Tok operates purely on the geometric and photometric Gaussian parameters; it does not exploit the dense \emph{per-primitive semantic} information that has recently become available at scale through datasets such as SceneSplat-7K~\cite{li2025scenesplat}, which equips $7{,}916$ indoor 3DGS scenes with per-Gaussian language and category labels. Whether and how semantic supervision can be folded into the latent, so that the representation is not merely a geometric code but a \emph{semantically structured} one, is unaddressed. Second, and more fundamentally, it is unclear what is actually required to make scene-level autoencoding \emph{scale}: to move from a few hundred scenes to several thousand heterogeneous scenes drawn from many capture sources, and to do so with a latent organized well enough to support a hierarchical second-stage generator.
+Can3Tok~\citep{gao2025can3tok} established for the first time that a
+scene-level 3DGS VAE is feasible: it demonstrated convergence on small training
+sets and showed that the resulting latent could be used for generation.
+This was an important existence proof, but it left open a question that became
+the organising challenge of this thesis: can such an autoencoder be scaled
+to thousands of heterogeneous scenes, and what is required to achieve that?
 
-% ---------------------------------------------------------------------
-\section{Problem Statement and Central Hypothesis}
-% ---------------------------------------------------------------------
+During the early stages of this project, the answer to that question proved
+to be \emph{no, not without significant changes}. Training the Can3Tok
+architecture on thousands of pre-fitted, frozen 3DGS scenes failed to
+converge to anything useful. Understanding why, and fixing it, is what this
+thesis is about.
 
-This thesis studies the construction of a \emph{semantically aware, scalable, scene-level 3DGS autoencoder} as Stage~1 of a two-stage pipeline for scene generation and completion. The encoder must map a variable-size, unordered Gaussian set into a fixed-size structured latent; the decoder must reconstruct the scene; and the latent must be organized so that (i) semantically related regions are grouped, (ii) coarse layout and fine geometry are at least partially separated, and (iii) a downstream flow-matching transformer can model the latent distribution for generation and inpainting-style completion.
+%% ──────────────────────────────────────────────────────────────────────────
+\section{Problem Statement}
+\label{sec:intro_problem}
 
-The central difficulty we identify, and the thesis's organizing theme, is \textbf{identifiability}. The per-primitive parameters of a fitted 3DGS scene are \emph{non-identifiable}: many different configurations of the primitives render to the same image, so a large fraction of each primitive's parameters encodes \emph{gauge}, arbitrary nuisance variation that carries no scene content. Three facets of this gauge recur throughout the thesis. (a)~A 3DGS scene is a \emph{set}; its primitives have no canonical order, so a reconstruction loss that compares ``slot $i$ of the output'' to ``slot $i$ of the target'' is comparing two arbitrarily-ordered lists and is, in general, not a learnable function. (b)~A Gaussian's orientation is encoded by a quaternion, but the covariance $\Sigma = R\,\mathrm{diag}(s^2)\,R^\top$ it produces is invariant to the quaternion double cover ($q \equiv -q$), to axis relabelling, and, when the scale is near-isotropic, to almost any rotation; an element-wise quaternion loss penalizes all of this gauge-equivalent variation, which the network cannot reduce. (c)~The within-region \emph{placement} of individual Gaussians is itself largely a gauge freedom of the fit, so regressing exact positions forces the network to memorize nuisance rather than learn structure.
+This thesis studies the construction and training of a semantically aware,
+scalable, scene-level 3DGS variational autoencoder as Stage~1 of a two-stage
+generative pipeline for scene generation and completion. The encoder must map
+a variable-size, unordered Gaussian scene into a fixed-size structured latent
+$Z \in \bR^{T \times d}$, and the decoder must reconstruct the scene from
+it. Downstream, a flow-matching Stage~2 model should be trainable on the
+resulting latent distribution.
 
-Our central hypothesis is that \emph{the obstacles to scaling scene-level 3DGS latent modeling are, to first order, obstacles of identifiability and structure, and that they are best addressed by making the reconstruction target identifiable and the latent compositional}. Concretely, we argue and provide evidence that (i)~imposing a canonical \emph{order} on the Gaussian set via a space-filling curve converts the unlearnable slot-to-slot target into a smooth, learnable one; (ii)~replacing slot-aligned and quaternion losses with \emph{permutation-invariant} and \emph{gauge-invariant} objectives removes the unlearnable nuisance from the gradient; (iii)~a \emph{spatially local, per-token} encoder produces compositional features that generalize across thousands of scenes where a globally-mixed code memorizes; and (iv)~contrastive and disentanglement objectives endow the latent with semantic and layout structure at no cost to reconstruction. A recurring practical lever throughout is the interaction between how many Gaussians are \emph{sampled} per scene and how they are \emph{ordered}: the two together determine how learnable the reconstruction target is.
+The central difficulty we identify is that the per-primitive parameters of a
+\emph{pre-fitted} 3DGS scene are structurally ambiguous in two compounding
+ways.
 
-% ---------------------------------------------------------------------
+\paragraph{The ordering problem.} A 3DGS scene is a set; any permutation of
+its elements represents the same scene. A decoder that is asked to reconstruct
+``the $i$-th Gaussian'' is being asked to reconstruct a target that has no
+stable identity from one scene to the next. Without a canonical ordering,
+the slot-aligned reconstruction loss has no persistent signal and the model
+cannot converge.
+
+\paragraph{The placement and orientation problem.} Even within a small spatial
+region, the exact position of any individual Gaussian is largely a degree of
+freedom of the fitting optimiser. And the covariance
+$\vsigma_i = R(q_i)\,\mathrm{diag}(s_i^2)\,R(q_i)^\top$ is invariant to
+sign flips and permutations of the quaternion and scale, meaning a naive loss
+on the raw quaternion $q_i$ penalises differences that do not change the actual
+Gaussian shape.
+
+Both problems become much harder at scale. At 300 scenes the model has enough
+repetition to memorise individual scenes despite these ambiguities. At 3,000
+or 6,000 scenes, memorisation is no longer possible and the problems become
+the dominant obstacle.
+
+There is also a subtler interaction that we discovered empirically: the
+\emph{sampling budget}. In Can3Tok, the Gaussian splats are jointly optimised
+alongside the autoencoder, so the fitting process can co-adapt to the
+tokenisation. With pre-fitted, frozen splats there is no such co-adaptation.
+As a result, the number of Gaussians per latent token (the ``block size''
+$g = \lceil N/T \rceil$) directly controls how much structural ambiguity the
+decoder must resolve per token, and using a smaller budget is substantially
+better in this regime.
+
+%% ──────────────────────────────────────────────────────────────────────────
 \section{Research Questions}
-% ---------------------------------------------------------------------
+\label{sec:intro_rqs}
 
-The thesis is organized around one main research question and four sub-questions.
-
-\medskip
-\noindent\textit{Main RQ: To what extent can a semantically aware, scene-level 3D Gaussian Splatting autoencoder be made to scale from a few hundred scenes to several thousand heterogeneous scenes, and what design choices are responsible?}
+The work addresses one main question and three sub-questions.
 
 \medskip
-\noindent The sub-questions decompose this into testable parts:
-\begin{itemize}
-  \item \textbf{RQ1 (Scaling and reconstruction).} What causes a scene-level 3DGS autoencoder that converges well on a few hundred scenes to fail to converge when the training set is scaled, and which changes to the data pipeline, encoder, decoder, and objective restore convergence and generalization?
-  \item \textbf{RQ2 (Identifiability of the target).} How do the \emph{ordering} of the Gaussian set and the choice of \emph{reconstruction objective} (slot-aligned versus permutation-invariant; element-wise versus gauge-invariant covariance) affect what the model can learn, and how does the number of Gaussians sampled per scene interact with this?
-  \item \textbf{RQ3 (Semantic structure).} Can per-primitive semantic supervision and latent disentanglement be incorporated so that the latent space exhibits semantic grouping and a separation between coarse layout and fine geometry, without degrading reconstruction?
-  \item \textbf{RQ4 (Towards generation and completion).} Does the resulting latent admit a hierarchical second-stage generative model, and what is the design space for scene generation and scene completion built on top of the Stage~1 representation?
-\end{itemize}
+\noindent\textbf{Main question}: \textit{What is required to scale a
+scene-level 3DGS variational autoencoder from a few hundred training scenes
+to several thousand heterogeneous scenes, and which design choices matter most?}
 
-% ---------------------------------------------------------------------
+\medskip
+\noindent\textbf{RQ1 (Ordering and identifiability).} Does imposing a canonical
+spatial order on the Gaussian set restore convergence at scale, and how do
+different ordering strategies compare?
+
+\noindent\textbf{RQ2 (Architecture and generalisation).} Does replacing the
+global encoder bottleneck with a spatially local encoder close the
+train-to-test generalisation gap that appears at scale?
+
+\noindent\textbf{RQ3 (Semantic structure).} Can per-primitive semantic
+supervision and latent disentanglement be incorporated into the small-scale
+regime without degrading reconstruction, motivating their inclusion in the
+final design?
+
+%% ──────────────────────────────────────────────────────────────────────────
 \section{Contributions}
-% ---------------------------------------------------------------------
+\label{sec:intro_contributions}
 
-The contributions of this thesis are the following.
+The contributions of this thesis are as follows.
 
 \begin{enumerate}
-  \item \textbf{A semantically aware scene-level 3DGS autoencoder.} We extend the Can3Tok architecture~\cite{gao2025can3tok} into a VAE that consumes the per-Gaussian semantic labels of SceneSplat-7K~\cite{li2025scenesplat} and learns a latent in which Gaussians of the same category are pulled together, demonstrated qualitatively through PCA visualizations of the per-Gaussian feature space (\autoref{sec:results}). As part of this we introduce a colour decomposition in which the per-scene mean (the diffuse, low-frequency component) is predicted from a global token and the decoder reconstructs only the per-primitive residual, which removes a gradient-starvation failure we observed when the decoder had to produce the absolute colour directly.
+\item \textbf{Identification of the scaling barriers.} We show, through
+  systematic experimentation, that the ordering of the Gaussian set is the
+  primary obstacle to scaling. Without a stable slot-to-position correspondence,
+  the reconstruction target is not learnable at thousands of scenes.
 
-  \item \textbf{An identifiability-centred analysis of scaling.} We show that the failure to scale is principally a failure of target identifiability, and we introduce or adapt a coherent set of remedies: a fixed-frame Hilbert space-filling serialization of the Gaussian set~\cite{wu2024ptv3,skilling2004hilbert} that makes the element-wise objective learnable; a permutation-invariant per-block set-reconstruction loss based on entropic optimal transport~\cite{cuturi2013sinkhorn,carion2020detr}; and a gauge-invariant covariance (Bures/2-Wasserstein) objective~\cite{villani2009ot} that removes the unlearnable quaternion gauge.
+\item \textbf{Fixed-frame Hilbert serialisation.} We apply a space-filling
+  Hilbert curve in a fixed canonical coordinate frame to impose a consistent,
+  locality-preserving order on the Gaussian set~\citep{skilling2004hilbert,
+  wu2024ptv3}. We show that this is more effective than opacity ranking
+  (the Can3Tok default) and Z-order (Morton) sorting.
 
-  \item \textbf{A structured, spatially local latent.} We replace the globally-mixed bottleneck of the base architecture with a windowed, per-token \emph{local} encoder and a token-local decoder with anchor-relative position decoding in the spirit of Scaffold-GS~\cite{lu2024scaffold} and GaussianCube~\cite{zhang2024gaussiancube}. We provide evidence that this is the change most responsible for closing the train/test generalization gap at scale.
+\item \textbf{Anchor-relative position decoding.} We introduce per-token
+  spatial anchors (block centroids) and decode each Gaussian's position as
+  $\hat{\vmu}_i = a_{\tau(i)} + \rho\,\tanh(o_i)$, so the decoder predicts
+  a bounded local offset rather than an absolute coordinate. This matches the
+  Hilbert block structure and substantially reduces the within-block structural
+  ambiguity the decoder must resolve.
 
-  \item \textbf{A systematic study of sampling and ordering.} We document the interaction between the number of Gaussians sampled per scene and the serialization order, and relate the difficulty we encountered to a property of the original Can3Tok pipeline, namely that it samples a large fixed budget of Gaussians ($40$k) while jointly optimizing the splats, a setting that differs from ours, in which the splats are pre-fitted and frozen.
+\item \textbf{Improved reconstruction objectives.} We combine a Sinkhorn
+  entropic-OT set loss~\citep{cuturi2013sinkhorn} that matches primitives
+  within blocks by optimised assignment, with a Bures co-diagonalisation
+  covariance loss that measures orientation and shape in a manner invariant to
+  quaternion parameterisation.
 
-  \item \textbf{A latent generative design for Stage~2, built and trained.} We design, implement, and train a hierarchical two-part latent flow-matching transformer (a layout model followed by a geometry model) for scene generation, and an inpainting variant for scene completion, on top of the frozen Stage~1 latent. We further use the Stage~1 results to decide which representations can support each task, and run the second stage only on those, so the choice of what to generate and complete is grounded in measured properties of the Stage~1 latents rather than assumed.
+\item \textbf{Spatially local encoder and token-local decoder.} We replace the
+  globally-mixed bottleneck with a windowed cross-attention encoder and a
+  shared per-token MLP decoder. We show that this is the single change most
+  responsible for closing the train-to-test generalisation gap.
+
+\item \textbf{Small-scale semantic exploration.} We conduct 300-scene
+  experiments exploring per-primitive contrastive objectives and latent
+  disentanglement, demonstrating that these are feasible and produce
+  meaningful semantic structure in the latent.
+
+\item \textbf{Stage-2 generative design.} We specify and partially implement
+  a hierarchical flow-matching generator~\citep{lipman2023flowmatching,
+  peebles2023dit} built on the Stage-1 latent, targeting both unconditional
+  scene generation and partial-scan completion.
 \end{enumerate}
 
-We are candid about scope. The thesis delivers and analyses the Stage~1 representation in depth, and this is where the strongest evidence lies. The Stage~2 generator and the completion model are implemented and trained on the selected representations, but their large-scale quantitative evaluation was still being computed as this was written, so the second-stage results are reported as a setup with clearly marked space for the final numbers rather than as finished measurements. The reason the balance of effort fell this way is itself a finding: the scaling difficulty, and in particular the coupling between sampling, ordering, and what the architecture can learn, absorbed most of the project, and bringing the second stage to a fully evaluated result on a converged Stage~1 latent is the natural continuation of the work (\autoref{sec:discussion}).
+We are upfront about scope: the large-scale ablation training is underway
+at the time of writing and full quantitative results will be incorporated as
+they become available. The Stage-2 training has not yet completed, and scene
+completion remains the primary direction for future work.
 
-% ---------------------------------------------------------------------
-\section{Thesis Outline}
-% ---------------------------------------------------------------------
+%% ──────────────────────────────────────────────────────────────────────────
+\section{Thesis Structure}
+\label{sec:intro_structure}
 
-\autoref{sec:related_work} situates the work within 3D scene representation, 3D generative modeling, set and point-cloud learning, and contrastive and disentangled representation learning. \autoref{sec:methodology} presents the method: the shared encoder, the family of latent-structure and decoder variants, the reconstruction objectives, the semantic objectives, and the data pipeline, followed by the Stage~2 generative design and the experimental setup. \autoref{sec:results} reports the large-scale reconstruction and ablation results with the real per-attribute numbers, the small-scale exploration that motivated the design, the semantic-structure visualisations, the selection of Stage~1 representations for the second stage, and clearly marked space for the final Stage~2 outputs. \autoref{sec:discussion} interprets the findings, with an emphasis on the scaling problem and its partial resolution, and states the limitations. \autoref{sec:conclusion} answers the research questions and concludes.
+Chapter~\ref{chap:related} positions this work in the literature.
+Chapter~\ref{chap:method} presents the full method in detail.
+Chapter~\ref{chap:results} presents the experimental findings: the 300-scene
+exploratory results first, then the large-scale comparisons with
+placeholders for in-progress runs. Chapter~\ref{chap:discussion} interprets
+the findings and discusses limitations. Chapter~\ref{chap:conclusion}
+answers the research questions. The appendix records all configuration details
+for reproducibility.

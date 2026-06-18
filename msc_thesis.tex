@@ -1,7 +1,8 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% MSc Artificial Intelligence Thesis
-% University of Amsterdam
-% Mohammad Hafeez Khan
+% MSc Artificial Intelligence Thesis — University of Amsterdam
+% Student: Mohammad Hafeez Khan
+% Title: Semantic Scene Completion with Latent Modeling of Scene-Level
+%        3D Gaussians
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 \documentclass{mscaithesis}
@@ -15,66 +16,56 @@
 \usepackage{multirow}
 \usepackage{microtype}
 \usepackage{graphicx}
+\usepackage{subcaption}
 \usepackage{url}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
 
-% Convenient shorthands
-\newcommand{\GS}{\text{GS}}
+% Shorthands
+\newcommand{\GS}{\textsc{3dgs}}
 \newcommand{\cL}{\mathcal{L}}
 \newcommand{\cG}{\mathcal{G}}
 \newcommand{\bR}{\mathbb{R}}
 \newcommand{\bS}{\mathbb{S}}
+\newcommand{\vmu}{\boldsymbol{\mu}}
+\newcommand{\vsigma}{\boldsymbol{\Sigma}}
+\newcommand{\todo}[1]{\textcolor{red}{[TODO: #1]}}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% DOCUMENT METADATA
+% METADATA
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-\title{Semantic Scene Completion with Latent\\ Modeling of Scene-Level 3D Gaussians}
-\date{2026/09/01}   % TODO: set actual submission date
+\title{Semantic Scene Completion with Latent\\
+       Modeling of Scene-Level 3D Gaussians}
+
+\date{2026/09/01}  % TODO: update to actual submission date
+
 \author{Mohammad Hafeez \textsc{Khan}}
 \studentnumber{15549089}
-\period{2025/11 -- 2026/09}
+\period{November 2025 -- September 2026}
 \credits{36 ECTS}
-\examiner{TODO: assigned examiner}        % TODO: fill from Datanose
-\dailysupervisor{Dr.\ Yue Li}
-\uvasupervisor{Prof.\ Martin R.\ Oswald}
+\examiner{Dr. Shaodi You}   % Fill from Datanose
+\dailysupervisor{~Yue Li}
+\uvasupervisor{Prof.~Martin R.~Oswald}
 \addsupervisor{}
 
 \begin{document}
 \maketitle
 
 \frontmatter
+
     \chapter*{Abstract}
         \begin{adjustwidth}{4cm}{4cm}
-3D Gaussian Splatting has become a standard representation for photorealistic
-scene reconstruction, yet scene-level generation remains largely unexplored.
-Compressing an entire scene of unordered Gaussian primitives into a structured
-latent space is the prerequisite. This thesis studies a semantically aware,
-scalable, scene-level Gaussian-splatting variational autoencoder as Stage~1 of
-a two-stage generative pipeline. We show that the central obstacle to scaling
-such an autoencoder from a few hundred scenes to several thousand is
-\emph{identifiability}: pre-fitted Gaussian scenes contain large amounts of
-gauge freedom in the ordering of the primitive set, in the quaternion
-parameterisation of orientation, and in the within-region placement of
-individual primitives, none of which a naive reconstruction objective can
-learn. We further identify that the sampling budget interacts non-trivially
-with this gauge: with frozen, pre-fitted splats a smaller budget works
-significantly better than the large budget used when splats are jointly
-optimised, a finding with practical consequences for the field. Our remedies
-combine a fixed-frame Hilbert space-filling serialisation that makes the
-slot-aligned target learnable, permutation-invariant and gauge-invariant
-reconstruction objectives, and a spatially local per-token encoder that yields
-a compositional latent. Contrastive and disentanglement objectives add semantic
-and layout structure. Ablation experiments confirm that encoding locality is
-the single change most responsible for closing the train-to-test generalisation
-gap at scale. The second-stage hierarchical flow-matching generator for scene
-generation and completion is designed and partially implemented.
+            % \input{sections/0-abstract}
         \end{adjustwidth}
 
     \tableofcontents
     \listoffigures
     \listoftables
     \setlength{\parskip}{5pt}
-    \include{sections/0-list-symbols}
+    \include{sections/0-symbols}
 
 \twocolumn
 \mainmatter

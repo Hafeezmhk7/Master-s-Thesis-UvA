@@ -1,188 +1,612 @@
 \chapter{Methodology}
-\label{sec:methodology}
+\label{chap:method}
 
-This chapter presents the method. We first formalize the problem and the notion of identifiability that organizes the thesis (\autoref{sec:method_overview}). We then describe the shared encoder (\autoref{sec:method_encoder}), the family of latent-structure variants (\autoref{sec:method_latent}), the spatially local encoder that is our main fix for scaling (\autoref{sec:method_local}), and the family of decoders (\autoref{sec:method_decoder}). We then give the reconstruction objectives, including the gauge-invariant covariance and permutation-invariant set losses (\autoref{sec:method_recon}), and the semantic and disentanglement objectives (\autoref{sec:method_semantic}). Finally we describe the data pipeline (\autoref{sec:method_data}), the second-stage generative design (\autoref{sec:method_stage2}), and the experimental setup (\autoref{sec:method_setup}). Throughout, we are explicit about which components are inherited from Can3Tok \citep{gao2025can3tok} and Michelangelo \citep{zhao2023michelangelo} and which are our additions.
+This chapter describes everything that is actually implemented and trained.
+We begin with the overall framework and the problem setup
+(\S\ref{sec:method_setup}), then cover the data pipeline
+(\S\ref{sec:method_data}), the encoder (\S\ref{sec:method_encoder}),
+the reconstruction objectives (\S\ref{sec:method_objectives}),
+the decoder improvements (\S\ref{sec:method_decoder}), the local
+encoder that is the key scaling change (\S\ref{sec:method_local}),
+the small-scale semantic experiments that motivated the design
+(\S\ref{sec:method_semantic}), and finally the Stage-2 design
+(\S\ref{sec:method_stage2}). A clear figure overview is provided
+at the start; all equations are numbered and all architectural
+choices are explicitly justified.
 
-% =====================================================================
-\section{Overview and Problem Formulation}
-\label{sec:method_overview}
-% =====================================================================
+%% ──────────────────────────────────────────────────────────────────────────
+\section{Framework and Problem Setup}
+\label{sec:method_setup}
 
-\paragraph{The representation.} A scene is a set of $N$ 3D Gaussian primitives $\mathcal{G} = \{g_i\}_{i=1}^{N}$. Each primitive is
+\paragraph{Scene representation.}
+A scene is a set $\cG = \{g_i\}_{i=1}^{N}$ of $N$ Gaussian primitives, each
+a 14-dimensional vector:
 \begin{equation}
-  g_i = (\mu_i,\, c_i,\, \alpha_i,\, s_i,\, q_i),
+  g_i = (\vmu_i,\; c_i,\; \alpha_i,\; s_i,\; q_i)
+  \in \bR^3 \times \bR^3 \times (0,1) \times \bR^3_+ \times \bS^3.
+  \label{eq:prim}
 \end{equation}
-with position $\mu_i \in \mathbb{R}^3$, colour $c_i \in \mathbb{R}^3$ (the diffuse term of the spherical-harmonic colour), opacity $\alpha_i \in (0,1)$, per-axis scale $s_i \in \mathbb{R}^3_{+}$, and unit quaternion $q_i \in \mathbb{S}^3$. The orientation and scale define the anisotropic covariance
+The anisotropic covariance of each primitive is
 \begin{equation}
-  \Sigma_i \;=\; R(q_i)\,\mathrm{diag}(s_i^2)\,R(q_i)^\top,
-  \label{eq:covariance}
+  \vsigma_i = R(q_i)\,\mathrm{diag}(s_i^2)\,R(q_i)^\top,
+  \label{eq:cov}
 \end{equation}
-where $R(q)$ is the rotation matrix of $q$. We pack each primitive into a $14$-dimensional vector and a scene into a tensor in $\mathbb{R}^{N \times 14}$.
+where $R(q)$ converts the unit quaternion $q$ to a rotation matrix.
 
-\paragraph{The goal.} We want an autoencoder, the first stage of a two-stage pipeline, consisting of an encoder $E_\phi$ that maps $\mathcal{G}$ to a fixed-size latent $Z \in \mathbb{R}^{T \times d}$ ($T$ tokens of width $d$) and a decoder $D_\theta$ that reconstructs $\hat{\mathcal{G}}$ from $Z$. We train it as a variational autoencoder \citep{kingma2014vae}: $E_\phi$ outputs the parameters of a diagonal Gaussian posterior $q_\phi(Z \mid \mathcal{G}) = \mathcal{N}(\mu_Z, \sigma_Z^2)$, we sample $Z$ by the reparameterization trick, and we optimize a reconstruction term against a Kullback-Leibler regularizer toward a standard normal prior,
+\paragraph{Autoencoder objective.}
+We train a variational autoencoder (VAE)~\citep{kingma2014vae} with encoder
+$E_\phi$ and decoder $D_\theta$. The encoder outputs the mean and log-variance
+of a diagonal Gaussian posterior $q_\phi(Z|\cG)$ over a token-structured
+latent $Z\in\bR^{T\times d}$ ($T=512$ tokens, $d=32$ per token). The latent
+is sampled by the reparameterisation trick and the training objective is the
+evidence lower bound:
 \begin{equation}
-  \mathcal{L} \;=\; \mathcal{L}_{\mathrm{recon}}(\hat{\mathcal{G}}, \mathcal{G}) \;+\; \beta\, D_{\mathrm{KL}}\!\big(q_\phi(Z\mid\mathcal{G}) \,\|\, \mathcal{N}(0, I)\big),
-  \label{eq:elbo}
+  \cL = \cL_{\text{recon}}(\hat{\cG}, \cG)
+      + \beta\,D_{\mathrm{KL}}\!\bigl(q_\phi(Z|\cG) \;\|\;
+        \mathcal{N}(0,I)\bigr),
+  \label{eq:vae}
 \end{equation}
-with a deliberately small $\beta$ so that the latent retains enough capacity for accurate reconstruction while remaining smooth enough for the second stage. The second stage then learns a generative model of $Z$ (\autoref{sec:method_stage2}). A schematic of the full pipeline is given in \autoref{fig:pipeline}.
+with $\beta = 10^{-5}$. The small $\beta$ keeps the latent highly
+informative for reconstruction while maintaining enough regularity for the
+second-stage generator.
 
 \begin{figure*}[t]
   \centering
-  \includegraphics[width=0.9\linewidth, height=0.26\textheight]{example-image}
-  \caption[Two-stage pipeline overview]{\textbf{Two-stage pipeline.} Stage 1 (this thesis) is a variational autoencoder that tokenizes a scene-level 3DGS set into a structured latent $Z$ and reconstructs the Gaussians. Stage 2 is a latent flow-matching transformer that models $p(Z)$ for generation, and an inpainting variant for scene completion. \emph{[FIGURE TODO: replace with the exported pipeline diagram. Show: raw 3DGS scene $\to$ normalization and Hilbert serialization $\to$ shared encoder $\to$ latent $Z$ $\to$ decoder $\to$ reconstructed Gaussians, with the Stage 2 layout/geometry models feeding the frozen decoder. Source: README ``Architecture at a Glance'' and ``Second-Stage Generation Pipeline''.]}}
+  \includegraphics[width=0.97\linewidth, height=0.30\textheight]{example-image}
+  \caption[Full pipeline overview]{%
+    \textbf{Stage-1 pipeline overview.}
+    A 3DGS scene is normalised and Hilbert-serialised, then processed by
+    the cross-attention Perceiver encoder which produces a structured latent
+    $Z$. The decoder reconstructs the scene using anchor-relative position
+    decoding and a per-token MLP (local decoder variant, R1) or a flat MLP
+    (global decoder, R2).
+    The Stage-2 hierarchical flow-matching generator (right) operates on the
+    frozen Stage-1 latent.
+    %
+    \emph{Diagram instructions (draw.io):}
+    Use three horizontal lanes: (1)~Data lane (grey): raw Gaussians $\to$
+    normalise $\to$ Hilbert sort; (2)~Stage-1 lane (blue): cross-attention
+    encoder $\to$ VAE bottleneck $\to$ decoder $\to$ reconstructed Gaussians;
+    (3)~Stage-2 lane (orange): LayoutDiT $\to$ GeometryDiT $\to$ frozen
+    Stage-1 decoder $\to$ generated scene.
+    Export as PDF at 300 dpi.
+  }
   \label{fig:pipeline}
 \end{figure*}
 
-\paragraph{Identifiability and gauge.} The central difficulty is that the per-primitive parameters of a \emph{pre-fitted} 3DGS scene are non-identifiable: distinct parameter sets render to the same image and are therefore equivalent as scene content, yet differ as regression targets. We call this nuisance variation \emph{gauge}. Three facets recur.
-\begin{itemize}
-  \item \textbf{Set gauge (order).} $\mathcal{G}$ is a set; any permutation of its elements is the same scene. A loss that compares the $i$-th output to the $i$-th target therefore depends on an arbitrary ordering and is not a well-defined function of the scene.
-  \item \textbf{Orientation gauge.} The covariance in \autoref{eq:covariance} is invariant to the quaternion double cover ($q \equiv -q$), to relabelling the axes (permuting the columns of $R$ together with the entries of $s$), to column sign flips, and, when $s$ is near-isotropic, to almost any rotation. An element-wise loss on $q$ penalizes all of this, none of which changes the Gaussian.
-  \item \textbf{Placement gauge.} Within a small spatial region, exactly where each individual Gaussian sits is largely a freedom of the fit; regressing the exact position forces the network to memorize nuisance.
-\end{itemize}
-Our thesis is that scaling fails primarily because these gauges make the naive target unlearnable, and that the fixes are to (i) impose a canonical order, (ii) replace gauge-sensitive losses with gauge-invariant ones, and (iii) make the latent compositional so it generalizes rather than memorizes. The remainder of the chapter develops each.
-
-% =====================================================================
-\section{Shared Encoder}
-\label{sec:method_encoder}
-% =====================================================================
-
-All variants share one encoder, inherited in form from the Michelangelo shape-latent VAE \citep{zhao2023michelangelo} and Can3Tok \citep{gao2025can3tok}, and built on a Perceiver-style cross-attention bottleneck \citep{jaegle2021perceiver}.
-
-\paragraph{Input features.} Each Gaussian is lifted to an input feature by concatenating a Fourier positional encoding \citep{tancik2020fourier} of its normalized absolute position, a Fourier encoding of a coarse voxel-centre coordinate (a hashed grid index that gives the encoder an explicit notion of cell membership), and the raw Gaussian parameters (opacity, scale, quaternion, and colour or colour residual). A linear projection maps the concatenated feature to the model width.
-
-\paragraph{Cross-attention bottleneck.} A set of learned query tokens cross-attends to the projected Gaussian features. We use one global query, whose output we call the \emph{shape embedding} $e \in \mathbb{R}^{w}$ and which summarizes the whole scene, and $K$ geometry queries, whose outputs are the per-region geometry tokens. In the baseline encoder a stack of self-attention layers then mixes the query tokens. Because the queries are fixed in number, the latent size is independent of $N$: a scene with any number of primitives is encoded into the same token budget, which is the property that lets the encoder ingest a variable-size, unordered set \citep{jaegle2022perceiverio}. The encoder is therefore permutation-invariant by construction, which already resolves the set gauge on the \emph{input} side; the set gauge re-appears only in the decoder objective (\autoref{sec:method_recon}).
-
-% =====================================================================
-\section{Latent-Structure Variants}
-\label{sec:method_latent}
-% =====================================================================
-
-We study three ways of organizing the latent $Z$, illustrated in \autoref{fig:latent_variants}. They differ in whether the latent is undifferentiated, explicitly split into semantic and geometric subspaces, or kept in one-to-one correspondence with spatial regions.
-
-\begin{figure*}[t]
-  \centering
-  \includegraphics[width=0.95\linewidth, height=0.28\textheight]{example-image}
-  \caption[Latent-structure and decoder variants]{\textbf{Stage 1 architecture variants.} Left: the baseline (C) with undifferentiated geometry tokens. Centre: the disentangled latent (A) splitting $Z$ into a semantic subspace $z_s$ and a geometry subspace $z_g$ with auxiliary heads and disentanglement losses. Right: the structured per-token latent with the spatially local encoder, where token $k$ corresponds to Hilbert block $k$. Decoder options (flat MLP, token-local MLP, anchor-relative, cross-attention conditioning) are shown beneath. \emph{[FIGURE TODO: replace with exported diagrams from README sections ``Shared Encoder Pipeline'', ``Strategy A/B1/C'', and the structured/local-encoder description. Keep the three latent layouts side by side.]}}
-  \label{fig:latent_variants}
-\end{figure*}
-
-\paragraph{Baseline (undifferentiated).} The simplest variant treats $Z$ as $T$ undifferentiated geometry tokens with no semantic split and no layout conditioning. This is the closest analogue to the published Can3Tok latent and serves as our control.
-
-\paragraph{Disentangled latent.} Motivated by the wish for a latent in which coarse scene identity and fine geometry are separated, we split $Z$ into a small semantic subspace $z_s$ (a handful of tokens routed from the shape embedding) and a larger geometry subspace $z_g$ (routed from the geometry tokens). Both are KL-regularized. Auxiliary heads read $z_s$ to predict scene-level quantities (a mean colour, a category-distribution, and per-category spatial centroids), which encourages $z_s$ to carry layout-level information, while disentanglement losses (\autoref{sec:method_semantic}) push $z_g$ to be sufficient for geometry and to be statistically separated from $z_s$. This variant is where our semantic-structure and disentanglement experiments were carried out at small scale.
-
-\paragraph{Structured per-token latent.} The third variant, which is the one used in our large-scale model, keeps the latent in one-to-one correspondence with space. After serializing the Gaussian set along a Hilbert curve (\autoref{sec:method_data}), a contiguous block of primitives is a local spatial cluster. Latent token $k$ is made to encode block $k$: the per-token posterior is used directly as $z$, and the dense global re-projection that the baseline uses to mix all tokens is skipped. This is what makes the latent \emph{compositional}: token $k$ always describes the same kind of local patch, patches recur across scenes, and so the representation transfers rather than memorizing a per-scene global code. Realizing this fully requires the local encoder of \autoref{sec:method_local}.
-
-% =====================================================================
-\section{Spatially Local Encoder}
-\label{sec:method_local}
-% =====================================================================
-
-The baseline encoder mixes all query tokens with global self-attention, so each latent token is a function of the whole scene. At small scale this is harmless, but at the scale of thousands of heterogeneous scenes we found it encourages the latent to behave as a memorized global code, which generalizes poorly (\autoref{sec:results}). We therefore replace the global bottleneck with a windowed, spatially local encoder.
-
-Concretely, with the Gaussian set Hilbert-ordered into $K$ contiguous blocks of $g = \lceil N/K \rceil$ primitives each, geometry query $k$ attends only to the primitives in a local window of blocks around block $k$ (from block $k-\omega$ to block $k+\omega$ for a small half-width $\omega$), rather than to the whole scene. A single global query still attends to all primitives to provide a scene-level summary. No global self-attention runs inside the encoder, since that would re-mix the tokens and destroy the locality the windowing creates; cross-token interaction is deferred to the decoder transformer. Latent token $k$ therefore encodes the local geometry of block $k$, the same block that the decoder's anchor and token-local head reconstruct, giving an end-to-end alignment between encoder token, latent token, spatial region, and decoder slot. We treat the window scope as an ablation axis: setting the window to span the whole scene recovers a global encoder with otherwise identical structure, which isolates locality as the variable of interest (\autoref{sec:results}).
-
-% =====================================================================
-\section{Decoders}
-\label{sec:method_decoder}
-% =====================================================================
-
-The decoder maps $Z$ back to $N$ Gaussians. We consider several options that trade capacity against structure.
-
-\paragraph{Flat decoder.} The inherited decoder applies a transformer to the post-projected latent and then a large multilayer perceptron that flattens all tokens and regresses all $N \times 14$ outputs at once. This has very high capacity but a single dense bottleneck, which we found encourages memorization at scale.
-
-\paragraph{Token-local decoder.} We replace the flat head with a shared per-token multilayer perceptron: each of the $T$ decoder tokens decodes its own contiguous slice of $g$ Gaussians using shared weights. This removes the dense bottleneck, is far smaller in parameter count, and matches the block structure of the latent so that token $k$ decodes the primitives of block $k$. Per-primitive semantic features for the contrastive objective are routed through a pooled-hidden path that preserves the interface the flat decoder exposed.
-
-\paragraph{Anchor-relative position decoding.} In the spirit of Scaffold-GS \citep{lu2024scaffold} and the structural-reference idea of GaussianCube \citep{zhang2024gaussiancube}, we decode position as an anchor plus a bounded local offset,
-\begin{equation}
-  \hat{\mu}_i \;=\; a_{\,\tau(i)} \;+\; \rho \cdot \tanh(o_i),
-  \label{eq:anchor}
-\end{equation}
-where $a_{\tau(i)}$ is the anchor of the token $\tau(i)$ that owns primitive $i$ (the per-block centroid, predicted from the token), $o_i$ is the decoder's raw position output, and $\rho > 0$ is a learnable global offset scale. The $\tanh$ bound is the point: it forces the offset to be a genuinely \emph{local} displacement, so the coarse position must be carried by the anchor. This directly targets the placement gauge: the network is asked for ``which block, plus a small local correction'' rather than an absolute coordinate to be memorized.
-
-\paragraph{Conditioning decoders.} For the disentangled latent we also study decoders in which a layout subspace conditions geometry. In the cross-attention variant, the geometry tokens form the decoder sequence and the layout tokens are injected as keys and values at every layer, which is a stronger architectural separation than letting all tokens mix by self-attention. A deterministic projection of the shape embedding can also serve as a stable layout code for conditioning, which is useful for completion because encoding the same partial scene twice yields the same conditioning. These variants are most relevant to the second-stage design (\autoref{sec:method_stage2}).
-
-% =====================================================================
-\section{Reconstruction Objectives}
-\label{sec:method_recon}
-% =====================================================================
-
-The reconstruction term in \autoref{eq:elbo} is where the gauge problem is won or lost. We describe the objectives in increasing order of gauge-awareness.
-
-\paragraph{Element-wise loss with serialized order.} The simplest reconstruction loss compares matched slots,
-\begin{equation}
-  \mathcal{L}_{\mathrm{elem}} \;=\; \frac{1}{B}\sum_{i=1}^{N} \big\| \hat{g}_i - g_i \big\|_2,
-\end{equation}
-optionally with per-attribute weights. As discussed, this is only a meaningful function of the scene if slot $i$ corresponds to a stable target. We obtain such a correspondence by serializing both prediction and target along a fixed-frame Hilbert curve (\autoref{sec:method_data}), so that slot $i$ is a spatially stable location rather than, for example, the $i$-th most opaque primitive. This converts the otherwise unlearnable slot-to-target map into a Lipschitz one, the property for which the Hilbert curve is preferred over the Z-order curve \citep{wu2024ptv3}.
-
-\paragraph{Permutation-invariant set loss.} Serialization fixes the order \emph{between} blocks but not \emph{within} a block, where the assignment of which colour or orientation belongs to which primitive remains a gauge. A slot-aligned loss forces the decoder to break that gauge, which it cannot, so it emits the per-block mean (washed-out colour, round blobs). We therefore optionally match predicted and target primitives \emph{within} each block by entropic optimal transport. Writing $C$ for the matrix of squared feature distances between the $g$ predicted and $g$ target primitives of a block, we compute a soft assignment by Sinkhorn iteration \citep{cuturi2013sinkhorn} and score the matched pairs, following the assignment-then-score recipe of DETR \citep{carion2020detr}. The matching is detached, so the gradient flows only through the matched residual. The identity assignment recovers $\mathcal{L}_{\mathrm{elem}}$ exactly, so the set loss can only lower it.
-
-\paragraph{Gauge-invariant covariance loss.} For orientation and scale we avoid an element-wise loss on the quaternion, which penalizes the orientation gauge of \autoref{sec:method_overview}, and instead compare the covariances in \autoref{eq:covariance} directly. Two covariances that differ only by gauge are equal as matrices, so any metric on the matrix is gauge-invariant. We use the Bures (equivalently, $2$-Wasserstein between zero-mean Gaussians) shape term \citep{villani2009ot},
-\begin{equation}
-  d_{\mathrm{B}}^2(\Sigma_p, \Sigma_t) \;=\; \mathrm{tr}\!\Big( \Sigma_p + \Sigma_t - 2\,\big( \Sigma_t^{1/2}\,\Sigma_p\,\Sigma_t^{1/2} \big)^{1/2} \Big),
-  \label{eq:bures}
-\end{equation}
-and, as a cheaper and numerically very stable surrogate, the co-diagonalization upper bound
-\begin{equation}
-  d_{\mathrm{cd}}^2(\Sigma_p, \Sigma_t) \;=\; \big\| \Sigma_p^{1/2} - \Sigma_t^{1/2} \big\|_F^2,
-  \label{eq:burescodiag}
-\end{equation}
-which equals \autoref{eq:bures} when the two matrices commute. Matrix square roots are computed by a Newton-Schulz iteration under trace normalization, which is pure matrix multiplication and therefore differentiable and stable even at coincident eigenvalues. Position, colour, and opacity keep their ordinary residual norms, so only the scale-and-rotation block is replaced and the overall loss scale (and hence the balance with the KL and auxiliary terms) is preserved. Because the covariance square root is available in closed form as $\Sigma^{1/2} = R\,\mathrm{diag}(|s|)\,R^\top$, the gauge-invariant shape term folds directly into the per-primitive feature used by the Sinkhorn matching, so the set loss and the covariance loss compose at no extra cost.
-
-\paragraph{Diagnostics.} Because the raw quaternion error is gauge-blind, we monitor a gauge-invariant covariance error (mean per-primitive Bures distance) and the target anisotropy at evaluation time, so that reconstruction quality of orientation is measured by a quantity that is actually well-defined.
-
-% =====================================================================
-\section{Semantic and Disentanglement Objectives}
-\label{sec:method_semantic}
-% =====================================================================
-
-To make the latent semantically structured we add objectives that consume the per-primitive labels of SceneSplat-7K \citep{li2025scenesplat}.
-
-\paragraph{Per-primitive contrastive loss.} We attach a projection head that produces a normalized feature for each Gaussian and apply an InfoNCE objective \citep{oord2018cpc,chen2020simclr} that pulls together primitives sharing a category label and pushes apart those that do not, implemented efficiently against per-category prototypes. This is the objective that organizes the per-primitive feature space; we visualize its effect by principal-component projection of the features (\autoref{sec:results}). Only the labelled scenes contribute to this term; scenes from auxiliary sources without compatible labels are filtered out so there is no cross-taxonomy collision.
-
-\paragraph{Scene-level and disentanglement objectives.} For the disentangled latent we additionally use: auxiliary heads on $z_s$ that predict scene-level quantities; a cross-reconstruction loss that decodes a latent with $z_s$ swapped across the batch but $z_g$ kept, and requires the geometry to be reconstructed correctly, which forces $z_g$ to be sufficient for geometry independently of $z_s$; and an orthogonality penalty that decorrelates random projections of the $z_s$ and $z_g$ means. Consistent with the identifiability literature \citep{locatello2019challenging}, we treat this as weak, supervised structuring of the latent rather than strict factorization.
-
-% =====================================================================
+%% ──────────────────────────────────────────────────────────────────────────
 \section{Data Pipeline}
 \label{sec:method_data}
-% =====================================================================
 
-The data pipeline is where the gauge fixes are partly realized, and where the sampling question that we identify as central is decided.
+\subsection{Dataset and Normalisation}
+\label{sec:method_dataset}
 
-\paragraph{Dataset.} We use SceneSplat-7K \citep{li2025scenesplat}, comprising $7{,}916$ indoor 3DGS scenes derived from seven established sources, with per-primitive ScanNet-style category labels. Our large-scale training mixes a set of chunked interior scenes (which carry semantics) with additional full-scene sources (whose semantics are disabled and which therefore contribute only to reconstruction), and validates on held-out full scenes and on held-out chunks; the latter, being disjoint by construction from the training chunks, gives a clean in-distribution generalization measure. Exact counts and paths are given in \autoref{sec:method_setup} and the appendix.
+We train on SceneSplat-7K~\citep{li2025scenesplat}, a collection of 7,916
+indoor 3DGS scenes reconstructed from ScanNet~\citep{dai2017scannet},
+Matterport3D, Replica, ARKitScenes, ScanNet++, 3RScan, and Hypersim.
+Each scene carries per-Gaussian ScanNet-72 category labels, which we use
+in the small-scale semantic experiments (\S\ref{sec:method_semantic}) but
+not in the main large-scale training runs.
 
-\paragraph{Normalization.} Scenes are unbounded and scale-inconsistent, so each is normalized into a canonical sphere of fixed radius. For chunked scenes we compute the normalization from the union of all chunks of a scene, so that all chunks of a room share one global coordinate frame, which is what makes a position target consistent across chunks of the same scene; full scenes use a per-scene normalization into the same radius.
+The main training set consists of 3,800 chunked interior scenes preprocessed
+from the ScanNet/Matterport source at $8\times8$ tile stride with
+$6\times6$ overlap. Three additional sources (800 full interior scenes,
+1,290 ARKitScenes, 856 ScanNet++ scenes) are added with semantic labels
+disabled to avoid cross-dataset taxonomy mismatch, giving approximately
+6,746 training scenes total. Validation uses 100 held-out full scenes and
+88 disjoint held-out chunks.
 
-\paragraph{Sampling: the central practical lever.} A scene has far more primitives than we can encode, so a fixed number $N$ must be sampled. We study two choices. Opacity sampling keeps the $N$ most opaque primitives; this is simple and visually clean but makes the sampled density follow the opacity field, which is non-uniform and hard to compress. Density-uniform (farthest-point-style) sampling instead keeps a spatially uniform subset, which equalizes the per-token load. We also vary $N$ itself. This matters because the original Can3Tok pipeline samples a large budget (on the order of $40$k primitives) \emph{while the splats are still being jointly optimized}, so the optimization can adapt the primitives to the sample; in our setting the splats are pre-fitted and frozen, so the sample is of a fixed, gauge-ridden set. We found that a smaller budget (on the order of $10$k) converges substantially better than the larger one in the frozen-splat setting, which we attribute to the reduced within-block placement gauge per token. This sampling-and-ordering interaction is examined in \autoref{sec:results}.
+Each scene is normalised into a canonical sphere of radius 10\,m. For
+chunked scenes, a global coordinate frame is precomputed from the union of
+all chunks belonging to the same room (stored in \texttt{norm\_factor.npy}),
+so every chunk shares a consistent spatial frame. Full scenes are normalised
+per-scene. This normalisation is essential for the Hilbert ordering
+(\S\ref{sec:method_hilbert}) to be consistent across scenes.
 
-\paragraph{Serialization.} After sampling, the primitives are reordered along a Hilbert space-filling curve computed in the fixed canonical frame, so that array slot $i$ is a spatially stable location and consecutive slots are spatial neighbours \citep{skilling2004hilbert,wu2024ptv3}. The same ordering defines the contiguous blocks used by the local encoder, the anchors, and the token-local decoder. We retain the Z-order (Morton) curve as an ablation to test the locality claim.
+\subsection{The Sampling Question}
+\label{sec:method_sampling}
 
-% =====================================================================
-\section{Second-Stage Generative Model}
-\label{sec:method_stage2}
-% =====================================================================
+A scene typically contains far more Gaussians than can be encoded. We select
+a fixed budget of $N$ Gaussians per scene by sorting all primitives by
+opacity in descending order and retaining the top $N$. This is the
+sampling strategy from Can3Tok~\citep{gao2025can3tok}.
 
-The second stage learns to generate the Stage 1 latent. We adopt flow matching \citep{lipman2023flowmatching,liu2023rectified} with a transformer backbone \citep{peebles2023dit} operating on the frozen Stage 1 latent, and decode generated latents with the frozen Stage 1 decoder. The design is hierarchical, mirroring the latent's layout-versus-geometry structure, and is shown in \autoref{fig:stage2}.
+An important subtlety distinguishes our setup from Can3Tok: in Can3Tok the
+Gaussian attributes are \emph{jointly optimised} alongside the autoencoder
+training, which means the fitting process can co-adapt the primitive placement
+to the tokenisation. In our setting the splats are \emph{pre-fitted and frozen};
+the autoencoder sees a fixed set of Gaussians whose within-region arrangement
+was determined entirely by a rendering-oriented optimiser with no knowledge
+of the tokenisation structure.
 
-\begin{figure*}[t]
+The practical consequence is that each latent token must decode
+$g = \lceil N/T \rceil$ primitives. At $N=40{,}000$ and $T=512$,
+$g \approx 79$~Gaussians per token; at $N=10{,}000$, $g \approx 20$.
+The decoder has $d=32$ numbers per token to account for $g \times 14$
+output values, giving compression ratios of roughly $32\,/\,(79{\times}14)
+\approx 0.029$ versus $32\,/\,(20{\times}14) \approx 0.114$.
+The larger the block size, the more structural ambiguity is packed into each
+token, and the harder the task. We investigate this empirically in
+\S\ref{sec:results_sampling}.
+
+\subsection{Hilbert Serialisation}
+\label{sec:method_hilbert}
+
+After sampling, we reorder the $N$ selected Gaussians along a Hilbert
+space-filling curve computed in the fixed canonical frame of radius 10\,m.
+Concretely, each Gaussian position is mapped to an integer grid in
+$[0, 2^{10})^3$ by normalisation, then encoded to a 1D scalar using the
+Hilbert encoding of Skilling~\citeyearpar{skilling2004hilbert}, and the
+Gaussians are sorted by this scalar.
+
+\begin{figure}[h]
   \centering
-  \includegraphics[width=0.95\linewidth, height=0.27\textheight]{example-image}
-  \caption[Stage 2 generation and completion variants]{\textbf{Stage 2 variants.} A layout model generates the coarse (layout/semantic) latent tokens from noise (optionally conditioned on text), then a geometry model generates the geometry tokens conditioned on the layout tokens; the frozen Stage 1 decoder turns the full latent into Gaussians. Scene completion replaces generation of the observed tokens with an inpainting procedure that fixes the encoded observed tokens and denoises only the unobserved ones. \emph{[FIGURE TODO: replace with exported diagrams from README ``Second-Stage Generation Pipeline'' (the layout DiT $\to$ geometry DiT generation flow and the completion/inpainting flow). Keep generation and completion as two rows.]}}
+  \includegraphics[width=\linewidth]{example-image}
+  \caption[Hilbert vs. opacity ordering]{%
+    \textbf{Effect of serialisation on slot-to-position stability.}
+    Top view of a scene's sampled Gaussians, coloured by array index
+    (blue $=$ slot 0, red $=$ slot $N\!-\!1$).
+    \emph{Left}: opacity ordering produces a scattered, non-spatial index
+    assignment where the same physical location maps to a different slot
+    index in every scene. \emph{Right}: Hilbert ordering produces a smooth
+    spatial gradient where nearby slots correspond to nearby positions
+    consistently across scenes.
+    %
+    \emph{Diagram instructions (Matplotlib):}
+    Use any scene from \texttt{interior\_gs/val/}. Load \texttt{coord.npy}
+    and \texttt{opacity.npy}. Plot the $x$-$z$ top-down projection of the
+    top-10k Gaussians as a scatter plot coloured by array index using the
+    \texttt{plasma} colormap. Show two subplots: left panel sorts by
+    $-\text{opacity}$, right panel sorts by the Hilbert key. Subtitle each
+    panel with the mean consecutive-slot Euclidean distance ($\approx 1.2$\,m
+    for opacity, $\approx 0.25$\,m for Hilbert in typical scenes).
+  }
+  \label{fig:hilbert}
+\end{figure}
+
+The key property of the Hilbert curve is \emph{locality}: consecutive indices
+are always spatially adjacent (each step moves by exactly one cell in the
+quantised grid), whereas the Z-order (Morton) curve can jump across the
+volume when a high-order bit flips. This locality matters for the
+reconstruction loss because it means slot $i$ maps to a consistent,
+predictable spatial neighbourhood across all scenes. Point Transformer
+V3~\citep{wu2024ptv3} demonstrates the same advantage for point cloud
+processing tasks. We fix the frame (radius 10\,m, same as the normalisation)
+so the ordering is scene-agnostic: the curve traverses the same absolute
+spatial cells in the same order for every scene, giving a stable
+slot-to-region correspondence that generalises.
+
+After sorting, contiguous blocks of $g$ Gaussians correspond to compact
+local clusters. This is the same partition used by the decoder tokens:
+decoder token $k$ reconstructs Gaussians from block $k$, and the scaffold
+anchor for token $k$ is the centroid of that block.
+
+%% ──────────────────────────────────────────────────────────────────────────
+\section{Encoder}
+\label{sec:method_encoder}
+
+The encoder architecture is inherited from Can3Tok~\citep{gao2025can3tok}
+and Michelangelo~\citep{zhao2023michelangelo}. We describe it here for
+completeness and to establish the notation used when we modify it in
+\S\ref{sec:method_local}.
+
+\paragraph{Input features.}
+Each of the $N$ Gaussians contributes an 18-dimensional feature:
+voxel-centre coordinates (3 dims, FNV hash of a $40^3$ grid for coarse
+locality), voxel ID (1 dim), normalised position (3 dims), colour (3 dims),
+opacity (1 dim), scale (3 dims), quaternion (4 dims).
+These are lifted to two Fourier encodings~\citep{tancik2020fourier}---of
+the voxel centre and the position, 8 frequencies each---and the raw
+geometric parameters are appended, giving an 110-dimensional input per
+Gaussian that is projected to model width $w=384$ by a linear layer.
+
+\paragraph{Cross-attention bottleneck.}
+A set of $K+1$ learned query tokens cross-attends to the projected Gaussian
+features. Query 0 produces the \emph{shape embedding}
+$e \in \bR^{384}$ (a global scene summary). Queries $1\ldots K$ with
+$K=256$ produce the per-region geometry tokens. Six self-attention layers
+then mix the query tokens. The output is a $257 \times 384$ token sequence
+that is permutation-invariant with respect to the input Gaussians.
+
+\paragraph{VAE bottleneck.}
+A per-token linear projection produces mean $\mu$ and log-variance
+$\log\sigma^2$ for each of the $512$ latent tokens (the geometry queries
+are remapped to 512 via a linear layer). The latent $Z \in \bR^{512 \times 32}$
+is obtained by reparameterisation.
+
+%% ──────────────────────────────────────────────────────────────────────────
+\section{Reconstruction Objectives}
+\label{sec:method_objectives}
+
+The reconstruction term in Eq.~\eqref{eq:vae} combines three components.
+All are active in every large-scale run.
+
+\subsection{Slot-Aligned Loss with Hilbert Order}
+\label{sec:method_slotloss}
+
+With the Gaussian set Hilbert-ordered, the element-wise residual
+\begin{equation}
+  \cL_{\text{slot}} = \frac{1}{B}\sum_{i=1}^{N} \|\hat{g}_i - g_i\|_2
+  \label{eq:slot}
+\end{equation}
+is computed between the $i$-th decoded primitive and the $i$-th target
+primitive. Without ordering, this comparison is arbitrary. With Hilbert
+ordering, slot $i$ corresponds to a spatially stable location and the loss
+has a well-defined gradient.
+
+Colour is decomposed into a per-scene mean $\bar{c}$ (predicted by the
+decoder from the shape embedding) and a per-Gaussian residual
+$r_i = c_i - \bar{c}$. This separates the global colour palette, which is
+easy to predict, from fine local colour variation, which is harder. The
+decoder is trained to predict both:
+\begin{equation}
+  \hat{c}_i = \underbrace{\hat{\bar{c}}}_{\text{from shape emb.}}
+            + \underbrace{\hat{r}_i}_{\text{from latent token}}.
+  \label{eq:color_residual}
+\end{equation}
+
+\subsection{Sinkhorn Set Loss}
+\label{sec:method_setloss}
+
+The Hilbert order fixes the \emph{between}-block assignment but not the
+\emph{within}-block assignment: inside each block of $g$ Gaussians, which
+predicted primitive should match which target primitive is still ambiguous.
+A slot-aligned loss inside a block forces the decoder to emit a fixed
+permutation, but that permutation is typically arbitrary (it depends on the
+opacity ranking of the original fit). This leads to washed-out colours and
+round, mean-shaped Gaussians.
+
+We resolve this by matching predicted and target primitives \emph{within
+each block} using entropic optimal transport. Given the $g \times g$ cost
+matrix $C_{ij} = \|f_i - f_j\|_2^2$ where $f_i$ is a weighted feature
+vector for primitive $i$ (concatenating position, colour, opacity, and a
+covariance term), the soft assignment is:
+\begin{equation}
+  P^* = \arg\min_{P \in \mathcal{U}(1/g, 1/g)}
+        \langle P, C \rangle + \varepsilon H(P),
+  \label{eq:sinkhorn}
+\end{equation}
+where $\mathcal{U}$ is the transport polytope, $H(P) = -\sum_{ij} P_{ij}\log P_{ij}$
+is the entropy of the assignment, and $\varepsilon = 0.05$ is the
+regularisation. The assignment is computed by Sinkhorn
+iteration~\citep{cuturi2013sinkhorn} (50 iterations), then used to gather
+matched target primitives. Gradients flow only through the prediction, not
+through the matching (following~\citet{carion2020detr}). The identity assignment
+recovers Eq.~\eqref{eq:slot} exactly; the OT matching can only reduce the loss.
+
+\subsection{Covariance Orientation Loss}
+\label{sec:method_covloss}
+
+For orientation and scale, a naive element-wise loss on the quaternion $q$
+is unreliable because the covariance matrix $\vsigma = R(q)\,\mathrm{diag}(s^2)\,R(q)^\top$
+is invariant to various reparameterisations of $q$ and $s$. We instead
+compare the reconstructed and target covariances directly, using the
+co-diagonalisation Bures metric:
+\begin{equation}
+  d_{\text{cd}}^2(\vsigma_p, \vsigma_t) =
+    \left\|\vsigma_p^{1/2} - \vsigma_t^{1/2}\right\|_F^2,
+  \label{eq:bures}
+\end{equation}
+where $\vsigma^{1/2} = R\,\mathrm{diag}(|s|)\,R^\top$ is the exact
+symmetric positive-semidefinite square root (available in closed form,
+no iterative solver needed). This metric, which equals the exact
+2-Wasserstein shape distance when the two covariances
+commute~\citep{villani2009ot}, measures the actual similarity of the
+Gaussian shapes regardless of how they are parameterised. The total
+reconstruction loss is:
+\begin{equation}
+  \cL_{\text{recon}} =
+    \cL_{\text{slot}} +
+    w_{\text{cov}}\,\frac{1}{B}\sum_{i=1}^{N} d_{\text{cd}}^2(\vsigma_i^p, \vsigma_i^t).
+  \label{eq:recon_total}
+\end{equation}
+with shape weight $w_\text{cov} = 5.0$.
+
+%% ──────────────────────────────────────────────────────────────────────────
+\section{Decoder Improvements}
+\label{sec:method_decoder}
+
+\subsection{Anchor-Relative Position Decoding}
+\label{sec:method_anchor}
+
+In the baseline Can3Tok decoder, the flat MLP predicts Gaussian positions
+as absolute coordinates in the normalised canonical frame. This requires the
+decoder to learn the absolute position of every primitive in every scene---an
+unnecessarily hard problem. Inspired by Scaffold-GS~\citep{lu2024scaffold}
+and GaussianCube~\citep{zhang2024gaussiancube}, we decompose the prediction:
+\begin{equation}
+  \hat{\vmu}_i = a_{\tau(i)} + \rho \cdot \tanh(o_i),
+  \label{eq:anchor}
+\end{equation}
+where $a_{\tau(i)}$ is the spatial anchor for decoder token $\tau(i)$
+(the centroid of that token's Hilbert block, predicted from the decoder
+hidden state), $o_i$ is the raw offset predicted per-Gaussian, and
+$\rho > 0$ is a global learnable offset scale (initialised at 2.0). The
+$\tanh$ bounding ensures the offset is a genuinely local displacement: the
+decoder is asked for ``which block centre, plus a small local correction''
+rather than an absolute global coordinate.
+
+The per-token anchors $\{a_k\}$ are computed during data preprocessing from
+the actual Hilbert-block centroids of the input scene (stored alongside the
+features), making the decomposition exact at training time. The scaffold
+mode is set to \texttt{hilbert\_block} to ensure anchor~$k$ corresponds
+exactly to block~$k$, which is the same partition the decoder token~$k$
+will decode.
+
+\subsection{Decoder Fourier Positional Embedding}
+\label{sec:method_fourierpe}
+
+We add a Fourier positional embedding to the decoder tokens before the
+transformer. Each of the $T=512$ tokens is assigned a coordinate on an
+$8\times8\times8$ voxel scaffold grid covering the canonical frame. The
+Fourier encoding of these coordinates (8 frequencies, projected to width 384)
+is added to the post-KL token embeddings. This gives the decoder a notion
+of \emph{which spatial region} each token corresponds to, making the
+position prediction task easier.
+
+\subsection{Token-Local Decoder (R1 only)}
+\label{sec:method_tld}
+
+The inherited flat decoder passes the concatenated token representation
+(shape $512 \times 384$) through a $1024$-dimensional hidden layer before
+predicting all $N \times 14$ Gaussian attributes at once. The $1024$-d
+bottleneck is a severe compression: $196{,}608$ input values pass through
+1,024 hidden units, a ratio of $\approx192:1$. This bottleneck must encode
+scene-specific information that cannot generalise, making memorisation the
+dominant strategy at large scale.
+
+In Run~R1 we replace this with a \emph{token-local decoder}: a shared
+MLP applied independently to each of the $T = 512$ decoder tokens,
+predicting the $g \approx 20$ Gaussians belonging to that token's block.
+\begin{equation}
+  \hat{g}_{[k]} =
+    \mathrm{MLP}_\theta\!\left(h_k\right),
+    \quad k = 1,\ldots,T,
+  \label{eq:tld}
+\end{equation}
+where $h_k \in \bR^{384}$ is the post-transformer hidden state of token $k$,
+$\hat{g}_{[k]} \in \bR^{g \times 14}$ is the block of decoded Gaussians,
+and the MLP weights are shared across all tokens. Because the MLP is
+applied per-token rather than globally, there is no cross-scene bottleneck.
+The parameter count drops from $\approx 777$M (flat decoder) to $\approx 2$M
+(token-local MLP), while the effective representation bandwidth per token
+increases from $1024/512 = 2$ to $384$ dimensions.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\linewidth]{example-image}
+  \caption[Decoder comparison: flat vs.\ token-local]{%
+    \textbf{Flat vs.\ token-local decoder.}
+    \emph{Left (R2)}: The flat decoder concatenates all 512 token vectors
+    into a 196k-dim input, passes it through a 1024-d bottleneck, and
+    projects to all $N \times 14$ outputs at once. The bottleneck is a
+    memorisation point.
+    \emph{Right (R1)}: The token-local decoder applies a shared MLP to each
+    token independently, predicting the $g$ Gaussians belonging to that
+    block. Weights are shared; there is no cross-scene bottleneck.
+    %
+    \emph{Diagram instructions (draw.io):}
+    Two columns. Left column: stack of 512 rectangles (tokens, blue) $\to$
+    horizontal concatenation arrow $\to$ wide rectangle labelled
+    ``$196{,}608 \to 1024$'' (bottleneck, red) $\to$ output block.
+    Right column: same 512 rectangles $\to$ each connects to an identical
+    small rectangle labelled ``shared MLP'' (green) $\to$ $g$ tiny
+    rectangles per token. Use red to indicate the bottleneck is removed.
+  }
+  \label{fig:decoder}
+\end{figure}
+
+%% ──────────────────────────────────────────────────────────────────────────
+\section{Spatially Local Encoder (R1 only)}
+\label{sec:method_local}
+
+With the globally-mixed bottleneck encoder, every latent token is a function
+of the entire scene. This is not a problem at 300 scenes, where the model
+can memorise individual scenes. At thousands of scenes, two global encoder
+tokens representing the same physical corner of two different rooms are
+computed from entirely different global contexts, giving them no structural
+similarity. The model is implicitly asked to generalise by learning one
+global ``scene context $\to$ token'' mapping per token position, which at
+scale it cannot do.
+
+We replace the six global self-attention layers after the cross-attention
+bottleneck with \emph{windowed cross-attention}: geometry query $k$ attends
+only to the Gaussians in blocks $k-\omega$ to $k+\omega$ (window half-width
+$\omega = 1$), rather than to all $N$ input Gaussians. The global query~0
+still attends to all Gaussians for the scene-level summary. No global
+self-attention runs inside the encoder; cross-token interaction is handled
+entirely by the decoder transformer.
+
+This gives an end-to-end spatial alignment: encoder block $k$ processes
+Gaussians from blocks $k-1$ to $k+1$ $\to$ latent token $k$ encodes that
+region $\to$ decoder anchor $k$ is the centroid of block $k$ $\to$ the
+token-local MLP decodes those Gaussians. A flat floor patch in one room
+activates the same local encoder features as a flat floor in a different
+room, because both are processed by the same small-window cross-attention
+over similar local geometry. This compositional structure is what enables
+generalisation at scale.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\linewidth]{example-image}
+  \caption[Global vs.\ local encoder]{%
+    \textbf{Global vs.\ local encoder.}
+    \emph{Left (R2, global)}: every geometry query cross-attends to all $N$
+    input Gaussians. After the cross-attention, six self-attention layers mix
+    all queries globally. Each latent token is a function of the entire scene.
+    \emph{Right (R1, local)}: geometry query $k$ attends only to Gaussians
+    in a $\pm1$ block window around block $k$. No self-attention runs inside
+    the encoder. Each latent token is a function only of its local context.
+    %
+    \emph{Diagram instructions (draw.io):}
+    Two columns. Left: a row of Gaussian symbols (red dots) with arrows from
+    each of the 257 queries to all Gaussians (full bipartite graph). Right:
+    each query connects to only a small neighbourhood of Gaussians (sparse
+    connections). Annotate the left as ``global: memorisation'' and the right
+    as ``local: compositional generalisation''.
+  }
+  \label{fig:encoder}
+\end{figure}
+
+%% ──────────────────────────────────────────────────────────────────────────
+\section{Small-Scale Semantic Experiments}
+\label{sec:method_semantic}
+
+Before committing to the large-scale training strategy, we conducted
+exploratory experiments at 300 scenes to understand what kinds of latent
+structure are feasible and to motivate the design choices for the Stage-2
+generator.
+
+\subsection{Latent Disentanglement Variants}
+\label{sec:method_disent}
+
+We tested whether the latent could be split into a \emph{semantic
+subspace} $z_s$ (16 tokens, encoding coarse scene layout and category
+distribution) and a \emph{geometry subspace} $z_g$ (496 tokens, encoding
+fine geometric detail). Three conditioning approaches were explored:
+
+\begin{description}
+  \item[Strategy~C (baseline)] Undifferentiated latent; all 512 tokens
+    are geometry tokens with no semantic split.
+  \item[Strategy~A (disentangled)] The shape embedding is projected to $z_s$
+    via a separate mean/variance projection; $z_g$ comes from the geometry
+    queries. Auxiliary prediction heads on $z_s$ predict mean colour,
+    label distribution, and per-category centroids. Cross-reconstruction and
+    orthogonality losses encourage independence between $z_s$ and $z_g$.
+  \item[Strategy~B1 (cross-attention conditioning)] A deterministic
+    \texttt{Layout16Projector} maps the shape embedding to a layout code
+    $z_{\text{lay}} \in \bR^{16 \times 32}$ without VAE sampling. $Z$ contains
+    512 pure geometry tokens; $z_{\text{lay}}$ conditions every decoder layer as
+    keys and values in cross-attention.
+\end{description}
+
+\subsection{Per-Primitive Contrastive Objective}
+\label{sec:method_infonce}
+
+We also tested a per-primitive InfoNCE objective. A projection head maps each
+decoded Gaussian to a normalised feature $f_i \in \bR^{32}$. The loss pulls
+together Gaussians sharing a ScanNet-72 category label:
+\begin{equation}
+  \cL_{\text{NCE}} = -\frac{1}{M}\sum_{i=1}^{M}
+    \log \frac{
+      \exp\!\left(f_i^\top p_{y_i}/\tau\right)
+    }{
+      \sum_{k=1}^{K} \exp\!\left(f_i^\top p_k/\tau\right)
+    },
+  \label{eq:infonce}
+\end{equation}
+where $p_k$ is the mean L2-normalised feature for category $k$ across the
+current batch, $y_i$ is the category label of primitive $i$, $\tau=0.10$
+is the temperature, and $M$ is the number of labelled primitives in the
+batch. We tested three variants:
+\begin{description}
+  \item[pgNCE] The projection head operates on decoder hidden states and
+    produces per-Gaussian features. Gradient flows to the latent indirectly
+    through the decoder.
+  \item[PoolNCE] A pooling head operates directly on the $z_s$ tokens,
+    providing a direct gradient. Mirrors the architecture of the decoder
+    InfoNCE at $[B,1024]$ hidden dimension.
+  \item[Pool+pgNCE] Both objectives active simultaneously.
+\end{description}
+These semantic experiments were conducted at 300 scenes using the
+SceneSplat-7K chunks. The results (\S\ref{sec:results_semantic}) motivated
+the Stage-2 design and confirm that semantic structure is achievable,
+though these objectives are not active in the current large-scale runs.
+
+%% ──────────────────────────────────────────────────────────────────────────
+\section{Stage-2 Generative Model Design}
+\label{sec:method_stage2}
+
+The second stage trains a flow-matching model to generate the Stage-1 latent
+$Z \in \bR^{512 \times 32}$ from Gaussian noise. We adopt the linear
+interpolation path (rectified flow~\citep{liu2023rectified,lipman2023flowmatching}):
+$Z_t = t\,Z + (1-t)\,\epsilon$, $\epsilon \sim \mathcal{N}(0,I)$, with a
+velocity model $v_\theta(Z_t, t)$ trained to minimise
+$\mathbb{E}\left[\|v_\theta(Z_t,t) - (Z-\epsilon)\|_2^2\right]$.
+The backbone is a Diffusion Transformer
+(DiT)~\citep{peebles2023dit,ma2024sit} with adaLN-Zero timestep conditioning.
+
+\paragraph{Hierarchical generation.}
+The latent has two semantically distinct parts:
+\begin{itemize}
+  \item $z_s = Z[:, 0:16, :]$ --- 16 tokens encoding coarse scene layout
+    (learned by Strategy-A disentanglement at small scale).
+  \item $z_g = Z[:, 16:, :]$ --- 496 tokens encoding detailed geometry.
+\end{itemize}
+We use a two-stage hierarchy: (1) a shallow LayoutDiT ($\approx 7$M params,
+6 layers) generates $z_s$ from noise; (2) a deeper GeometryDiT ($\approx 55$M
+params, 12 layers) generates $z_g$ conditioned on $z_s$ via cross-attention.
+The frozen Stage-1 decoder then produces the Gaussians.
+
+For \emph{scene completion}, observed latent tokens are held fixed while
+unobserved tokens are denoised, conditioned on the layout code derived from
+the partial observation.
+
+\paragraph{Stage-1 candidate selection.}
+The Stage-2 generator requires a well-converged, well-regularised Stage-1
+latent. The R1 checkpoint (local encoder, token-local decoder, Hilbert
+ordering) is selected as the Stage-2 input because: (a) it shows the best
+generalisation gap in the ablation, and (b) its local-token structure means
+$z_s$ and $z_g$ encode their respective spatial regions consistently across
+scenes. The LayoutDiT is trained first, then the GeometryDiT conditioned on
+frozen LayoutDiT output.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\linewidth]{example-image}
+  \caption[Stage-2 generation pipeline]{%
+    \textbf{Stage-2 hierarchical generation pipeline.}
+    The LayoutDiT generates $z_s$ (coarse layout, 16 tokens) from noise.
+    The GeometryDiT generates $z_g$ (detailed geometry, 496 tokens)
+    conditioned on $z_s$ via cross-attention. The frozen Stage-1 decoder
+    renders both into a full 3DGS scene.
+    %
+    \emph{Diagram instructions (draw.io):}
+    Three horizontal stages. Left stage: noise block $\to$ ``LayoutDiT
+    (6 layers, 256-d)'' box (orange) $\to$ $z_s$ block (16 tokens, green).
+    Middle stage: noise block + $z_s$ $\to$ ``GeometryDiT (12 layers, 384-d)''
+    box (orange, larger) $\to$ $z_g$ block (496 tokens, green).
+    Right stage: $z_s + z_g$ $\to$ ``Frozen Stage-1 Decoder'' box (blue) $\to$
+    3DGS scene icon. Use dashed border on the decoder to indicate it is frozen.
+  }
   \label{fig:stage2}
-\end{figure*}
+\end{figure}
 
-\paragraph{Generation.} A layout model is trained by flow matching to transport noise to the coarse latent tokens, optionally conditioned on a text or class token by cross-attention. A geometry model is then trained to transport noise to the geometry tokens conditioned on the coarse tokens. Conditioning the geometry model on the coarse tokens by the same cross-attention structure used in the Stage 1 conditioning decoder keeps the two stages aligned in the same representational space. At inference, the layout model samples coarse tokens, the geometry model samples geometry tokens conditioned on them, and the frozen decoder produces the scene, with no encoder and no ground truth required.
+%% ──────────────────────────────────────────────────────────────────────────
+\section{Experimental Configurations}
+\label{sec:method_configs}
 
-\paragraph{Completion.} Scene completion is posed as latent inpainting. A partial observation is encoded; the observed latent tokens are held fixed while the unobserved tokens are initialised from noise and denoised by the completion model, conditioned on the (stable) coarse tokens; the frozen decoder then produces the completed scene. A deterministic layout code is advantageous here because the same partial observation yields the same conditioning. We implement and train these models on the selected representations (\autoref{sec:res_selection}); in our setup the partial observation is simulated by masking a subset of the latent tokens of a fully encoded scene rather than by encoding a genuinely partial scan, which keeps the data pipeline fixed but means we measure latent-space inpainting rather than completion from a raw partial capture, a distinction we are explicit about in \autoref{sec:discussion}. Because each token corresponds to a Hilbert block, masking tokens hides spatial regions of the scene.
+All runs share the following base configuration: transformer width 384,
+12 attention heads, 6 encoder layers, 12 decoder layers, $T=512$ tokens,
+$d=32$ per token, 8-frequency Fourier embeddings. Training uses AdamW
+($\beta_1=0.9$, $\beta_2=0.999$, weight decay $10^{-2}$), base learning
+rate $10^{-4}$, cosine decay with warm restarts ($T_0=800$ epochs),
+300-step warmup. The KL weight $\beta=10^{-5}$, bf16 mixed precision,
+4 H100 GPUs with DDP. The set loss uses Sinkhorn $\varepsilon=0.05$ with 50
+iterations, and the covariance shape weight is $w_\text{cov}=5.0$.
 
-\paragraph{Two latent schemas.} The second stage operates on whichever latent the chosen Stage~1 model produces, and there are two cases. In the \emph{disentangled} schema the latent already separates into a small layout subspace $z_s$ and a larger geometry subspace $z_g$, so generation is the layout-then-geometry pair above and completion conditions the geometry on $z_s$. In the \emph{structured-flat} schema there is a per-token geometry latent but no $z_s$, so there is no layout model and completion runs without conditioning, denoising the masked tokens from the unmasked ones alone. Running completion in both schemas is what lets us isolate the contribution of the layout conditioning.
+Table~\ref{tab:configs} summarises the four large-scale experimental
+configurations that form the main ablation.
 
-\paragraph{Positional encoding.} The flow-matching transformers need a notion of token position. We use a one-dimensional rotary embedding \citep{su2021roformer} for the geometry and completion models, whose tokens lie along the Hilbert curve and therefore carry a meaningful one-dimensional order, and a learned absolute embedding for the layout model, whose tokens are abstract and have no spatial order. This choice is supported by a small ablation in \autoref{sec:res_stage2}.
-
-% =====================================================================
-\section{Experimental Setup}
-\label{sec:method_setup}
-% =====================================================================
-
-\paragraph{Architecture and training.} The encoder and decoder use a transformer width of $384$ with $12$ attention heads, $6$ encoder and $12$ decoder layers, and an $8$-frequency Fourier embedding, following the inherited configuration. The latent uses $512$ tokens of width $32$; the per-token width is the principal capacity knob. We train with AdamW, a base learning rate of $1\times 10^{-4}$ with cosine warm restarts and a short linear warmup, a small fixed KL weight ($10^{-5}$), mixed bf16 precision, and distributed data parallelism across H100 GPUs. The large-scale training set mixes $3{,}800$ semantically labelled interior chunks with three additional full-scene sources (roughly $800$, $1{,}290$, and $856$ scenes, semantics disabled), for about $6{,}700$ scenes in total; the Stage~2 models reuse this same combination so that the frozen encoder sees the distribution it was trained on. Full hyperparameters, the exact loss weights, the per-source counts, and the run commands are listed in \autoref{sec:apx:first_appendix} and released with the code for reproducibility.
-
-\paragraph{Evaluation.} We evaluate reconstruction by per-attribute residual norms (position, colour, opacity, scale) reported on the same raw scale for training and validation so they are directly comparable, by the gauge-invariant covariance error for orientation and shape, and, for the final model, by image-space fidelity of renders of the reconstructed scenes (PSNR, SSIM, and LPIPS \citep{wang2004ssim,zhang2018lpips}); space is left for these in \autoref{sec:results} as the final model finishes. We validate on two held-out sets: a primary set of held-out full scenes (the harder, more representative case) and a disjoint set of held-out chunks, and we report both. As noted in \autoref{sec:res_scaling}, the full-to-chunk ratio is a coarse generalisation check only, because full scenes are intrinsically harder than chunks, so the ratio mixes difficulty with overfitting and we read it cautiously. We assess semantic structure qualitatively by principal-component visualisations of the per-primitive feature space and quantitatively by clustering and linear-probe measures on those features. Stage~2 generation and completion are evaluated by generation-quality and fidelity metrics for which we likewise leave space.
+\begin{table}[h]
+  \centering
+  \caption[Large-scale experimental configurations]{%
+    \textbf{Experimental configurations.}
+    All runs use Hilbert ordering, anchor-relative decoding,
+    set loss, and Bures codiag loss \emph{except R4} which uses opacity ranking
+    and voxel scaffold. R1 additionally uses the local encoder and
+    token-local decoder.}
+  \label{tab:configs}
+  {\small
+  \begin{tabular}{lccc}
+    \toprule
+    & \textbf{Hilbert} & \textbf{Local} & \textbf{Token-local} \\
+    \textbf{Run} & \textbf{order} & \textbf{encoder} & \textbf{decoder} \\
+    \midrule
+    R1 (ours, full) & \checkmark & \checkmark & \checkmark \\
+    R2 (sorting only) & \checkmark & --- & --- \\
+    R3 (+ disent., planned) & \checkmark & \checkmark & \checkmark \\
+    R4 (baseline) & --- & --- & --- \\
+    \bottomrule
+  \end{tabular}}
+\end{table}

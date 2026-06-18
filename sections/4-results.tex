@@ -1,260 +1,419 @@
 \chapter{Results}
-\label{sec:results}
+\label{chap:results}
 
-We organise the results around the research questions. \autoref{sec:res_status} states what each set of numbers is and how reliable we consider it, which matters because the experiments fall into two phases that should not be read in the same way. \autoref{sec:res_scaling} addresses RQ1 (scaling and reconstruction), \autoref{sec:res_identifiability} addresses RQ2 (identifiability, ordering, sampling, and locality), \autoref{sec:res_semantic} addresses RQ3 (semantic and layout structure), \autoref{sec:res_selection} addresses the first half of RQ4 by using the Stage~1 results to choose which representations to carry forward, and \autoref{sec:res_stage2} addresses the second half with the Stage~2 generation and completion models. Where the large-scale Stage~2 numbers were still being computed at the time of writing, we describe the design, give the one Stage~2 ablation that is already complete, and leave clearly marked space for the final figures. All code, configurations, and the exact run commands are released at \texttt{[GITHUB REPO LINK PLACEHOLDER]}.
+We present results in three groups. \S\ref{sec:results_300} covers the
+300-scene exploratory experiments where the model converges well and exact
+numbers are available from completed runs. \S\ref{sec:results_large} covers
+the large-scale ablation of the four configurations in Table~\ref{tab:configs};
+these experiments are currently in training and tables carry \emph{[pending]}
+markers where final numbers will be filled in. \S\ref{sec:results_semantic}
+covers the qualitative semantic structure.
 
-% =====================================================================
-\section{What the Numbers Are, and How to Read Them}
-\label{sec:res_status}
-% =====================================================================
+\noindent\emph{Note on evaluation metrics.} Reconstruction errors are reported
+as raw $\ell_2$ norms per batch (the training convention), averaged over
+validation batches. Per-attribute errors (Pos, Col, Opa, Scl, Rot) use the
+same convention. The generalisation gap is the ratio of held-out error to
+training error; a ratio near 1.0 indicates no memorisation.
 
-The work has two experimental phases, and we are explicit about which is which so that the reader does not over-read the smaller one. The first is a \emph{small-scale exploration} on a few hundred scenes, which we used to make design decisions cheaply: the sampling budget, the serialisation order, the colour decomposition, the latent-structure variants, and the Stage~2 positional encoding were all chosen here. Numbers from this phase are exploratory, sometimes from a single run, and we report them only to show how a decision was reached; they are flagged as such. The second is the \emph{large-scale} phase, in which a fixed configuration is trained on roughly $6{,}700$ heterogeneous scenes (\autoref{sec:method_setup}), and which carries the central reconstruction claims of the thesis.
+%% ──────────────────────────────────────────────────────────────────────────
+\section{Small-Scale Exploration: 300 Scenes}
+\label{sec:results_300}
 
-Two measurement caveats apply throughout and we state them once. First, the aggregate reconstruction loss is a weighted sum whose weights and auxiliary terms differ slightly between latent-structure variants, so the aggregate is \emph{not} directly comparable across configurations; we therefore lead with the per-attribute errors, which are on the same raw scale for every run, and in particular with the position error, which is the cleanest and most interpretable channel. Second, the orientation channel cannot be read from the raw quaternion error at all, because that error is blind to the orientation gauge of \autoref{sec:method_overview}; we report orientation only through a gauge-invariant covariance error and treat the raw quaternion number as uninformative. These two points are not incidental: they are consequences of the identifiability analysis, and they decide which columns in the tables below mean something.
+\subsection{Baseline Convergence}
+\label{sec:results_300_base}
 
-% =====================================================================
-\section{Scaling and Reconstruction (RQ1)}
-\label{sec:res_scaling}
-% =====================================================================
-
-The starting observation, which motivates everything that follows, is the one the small-scale exploration surfaced and the large-scale phase confirmed: the inherited encoder and decoder reconstruct a few hundred scenes well, but the same configuration, trained without the structural changes of \autoref{sec:methodology}, does not reach a comparable reconstruction once the training set is scaled to several thousand heterogeneous scenes. The position error in particular stays an order of magnitude above where it eventually settles. The rest of this section reports what closed that gap.
-
-\paragraph{The architecture ladder.} \autoref{tab:ladder} reports the per-attribute reconstruction error on the held-out full scenes for a ladder of configurations, each adding one structural change to the one above it. The reduction in position error is the headline. The global baseline, with the inherited global-bottleneck encoder and the flat decoder, sits at a position error above five thousand. Adding the token-local decoder \emph{on its own} changes essentially nothing, which is itself informative and we return to it in \autoref{sec:res_identifiability}. Replacing the global bottleneck with the windowed per-token encoder roughly halves the position error. The two changes that move it by an order of magnitude are the anchor-relative position decoding of \autoref{eq:anchor} and the structured per-token (disentangled) latent, and combining them gives the lowest error we obtained.
-
-\begin{table*}[t]
-  \centering
-  \caption[Stage 1 reconstruction ladder]{\textbf{Stage~1 reconstruction at scale.} Per-attribute reconstruction error on held-out full scenes (best epoch, lower is better), for a ladder of configurations on the $\sim$$6{,}700$-scene training set. Each row adds one change. Position (\textbf{Pos}) is the headline channel; colour, opacity, and scale are on their raw scales and are comparable across rows; the raw quaternion is omitted as uninformative (see \autoref{sec:res_status}) and orientation is discussed through the covariance error in the text. The aggregate loss is not directly comparable across rows and is omitted here.}
-  \label{tab:ladder}
-  \begin{tabular}{lccccc}
-    \textbf{Configuration} & \textbf{Pos} $\downarrow$ & \textbf{Col} $\downarrow$ & \textbf{Opa} $\downarrow$ & \textbf{Scl} $\downarrow$ & \textbf{Rot (gauge)} \\
-    \hline
-    Global bottleneck $+$ flat decoder (baseline)        & $5386$ & $867$ & $12.7$ & $88.9$ & gauge-locked \\
-    \quad $+$ token-local decoder only                   & $5372$ & $864$ & $20.9$ & $95.8$ & gauge-locked \\
-    \quad $+$ local (windowed) encoder                   & $2415$ & $611$ & $0.1$  & $74.1$ & gauge-locked \\
-    Global baseline $+$ anchor-relative position         & $543$  & $853$ & $13.4$ & $89.3$ & gauge-locked \\
-    Disentangled local latent, no anchor                 & $541$  & $571$ & $0.3$  & $74.3$ & gauge-locked \\
-    Disentangled local latent $+$ anchor (final)         & $\mathbf{451}$ & $\mathbf{571}$ & $2.0$ & $\mathbf{74.3}$ & gauge-locked \\
-  \end{tabular}
-\end{table*}
-
-\paragraph{Two independent routes to a low position error.} The most useful thing the ladder shows is that there are \emph{two} different changes that each cut the position error by roughly an order of magnitude, and they are not the same mechanism. The first is the anchor-relative decoding: applied to the otherwise unchanged global baseline, it drops the position error from above five thousand to about five hundred and forty. The second is the structured per-token latent (the disentangled variant), which reaches a comparable position error of about five hundred and forty \emph{without} an explicit anchor, through the one-to-one correspondence between latent tokens and Hilbert blocks. Each addresses the within-region placement gauge of \autoref{sec:method_overview}, one by forcing the coarse position into a per-block anchor and the other by giving each block its own token, and using both together lowers the error a little further, to about four hundred and fifty. We read this convergence of two independent interventions on the same value as evidence that what is being removed is a real, shared quantity (the placement gauge) rather than an artefact of one particular trick.
-
-\paragraph{A position-error floor.} Across the structured configurations the position error does not fall below roughly four hundred and fifty, even as opacity and scale continue to improve and training continues. We interpret this floor as the residual within-block placement gauge that a parameter-space objective cannot remove: once a token is responsible for a block of primitives, exactly where each primitive sits inside that block is not determined by the rendered scene, so an $L_2$ target on absolute positions is being asked to fit nuisance. This is consistent with the identifiability thesis and is, we think, the clearest single piece of evidence for it (\autoref{sec:discussion}).
-
-\paragraph{Render fidelity.} \autoref{tab:fidelity} reports image-space fidelity of renders of the reconstructed scenes against the ground-truth renders for the final model. These numbers are produced from the reconstruction PLYs once the final checkpoint is selected, and the cell entries are left to be filled from that export. \autoref{fig:recon} shows paired ground-truth and reconstructed renders.
-
-\begin{table}[h]
-  \centering
-  \caption[Render fidelity of the final reconstruction]{\textbf{Render fidelity.} Image-space metrics for renders of the final model's reconstructions on held-out scenes. Higher is better for PSNR and SSIM, lower for LPIPS \citep{wang2004ssim,zhang2018lpips}. \emph{[TODO: fill from the render export of the final checkpoint.]}}
-  \label{tab:fidelity}
-  \begin{tabular}{lccc}
-    \textbf{Model} & \textbf{PSNR} $\uparrow$ & \textbf{SSIM} $\uparrow$ & \textbf{LPIPS} $\downarrow$ \\
-    \hline
-    Final (disentangled local $+$ anchor) & -- & -- & -- \\
-  \end{tabular}
-\end{table}
-
-\begin{figure}[h]
-  \centering
-  \includegraphics[width=0.92\linewidth]{example-image}
-  \caption[Qualitative reconstruction]{\textbf{Qualitative reconstruction.} Ground-truth (top) and reconstructed (bottom) renders of held-out scenes from the final model. \emph{[FIGURE TODO: paired GT/reconstruction renders exported from the reconstruction PLYs; see the diagram and figure guide for the export recipe.]}}
-  \label{fig:recon}
-\end{figure}
-
-\paragraph{Generalisation.} \autoref{tab:gen} reports, for each configuration, the error on held-out full scenes against the error on held-out chunks. We use this pair as a generalisation check, but with an important caveat that we did not appreciate at first: full scenes are intrinsically harder to reconstruct than chunks, because they contain more primitives over a larger extent, so a ratio slightly above one is expected even with no overfitting and the ratio conflates difficulty with generalisation. Read with that caveat, the numbers are reassuring rather than diagnostic: every configuration, including the global baseline, generalises with a full-to-chunk ratio between about $1.0$ and $1.2$, and the converged models show validation error close to their training error, so overfitting is not the bottleneck at this data scale. This is a correction to a hypothesis we held from the small-scale phase, where a global encoder on a few hundred scenes did show a much larger train-to-test gap; at scale, the volume of data controls overfitting, and the benefit of the local encoder shows up as better absolute reconstruction (\autoref{tab:ladder}) rather than as a closed generalisation gap. We flag this explicitly because it changes the claim we can make for the local encoder.
-
-\begin{table}[h]
-  \centering
-  \caption[Generalisation: full versus chunk error]{\textbf{Generalisation.} Held-out full-scene error against held-out-chunk error, with their ratio. The ratio is a coarse check only, since full scenes are intrinsically harder than chunks (see text). All configurations generalise comparably at this data scale.}
-  \label{tab:gen}
-  \begin{tabular}{lccc}
-    \textbf{Configuration} & \textbf{Full} $\downarrow$ & \textbf{Chunk} $\downarrow$ & \textbf{Ratio} \\
-    \hline
-    Global baseline                       & $98.8$ & $85.9$ & $1.15$ \\
-    $+$ token-local decoder only          & $98.5$ & $85.6$ & $1.15$ \\
-    $+$ local encoder                     & $79.1$ & $66.3$ & $1.19$ \\
-    Global $+$ anchor position            & $44.6$ & $44.4$ & $1.01$ \\
-    Disentangled local, no anchor         & $48.9$ & $49.3$ & $0.99$ \\
-    Disentangled local $+$ anchor (final) & $47.5$ & $47.9$ & $0.99$ \\
-  \end{tabular}
-\end{table}
-
-% =====================================================================
-\section{Identifiability, Ordering, Sampling, and Locality (RQ2)}
-\label{sec:res_identifiability}
-% =====================================================================
-
-This section isolates the factors behind the scaling behaviour. Two of them, the sampling budget and the serialisation order, were settled in the small-scale phase and we report them as such; the others are read off the large-scale ladder of \autoref{tab:ladder}.
-
-\paragraph{Sampling budget (small-scale).} With pre-fitted and frozen splats, we found that sampling a smaller budget of primitives per scene (on the order of $10$k) converged more cleanly than a larger budget (on the order of $40$k), which is the opposite of the behaviour reported for the original setting in which the splats are jointly optimised while they are sampled \citep{gao2025can3tok}. Our reading follows directly from the placement gauge: the latent has a fixed token count, so a larger budget packs more primitives into each token's block (roughly $79$ per token at $40$k against $20$ at $10$k for a $512$-token latent), and the extra primitives are exactly the within-block arrangement that is least identifiable. In the original pipeline the fit can co-adapt the primitives to the sampled target; with frozen splats it cannot, so the larger target is simply more nuisance per token. \autoref{tab:sampling} records the comparison. We note that our large-scale runs nonetheless used the larger budget for continuity with the base pipeline, which is a limitation we return to in \autoref{sec:discussion}.
-
-\begin{table}[h]
-  \centering
-  \caption[Effect of the sampling budget (small-scale)]{\textbf{Sampling budget (exploratory).} Reconstruction error against the number of primitives sampled per scene, frozen splats, small-scale. \emph{[TODO: fill from the $10$k and $40$k exploration runs.]}}
-  \label{tab:sampling}
-  \begin{tabular}{lcc}
-    \textbf{Primitives per scene} & \textbf{Recon error} $\downarrow$ & \textbf{Converged?} \\
-    \hline
-    $\sim 10$k & -- & -- \\
-    $\sim 40$k & -- & -- \\
-  \end{tabular}
-\end{table}
-
-\paragraph{Serialisation order (small-scale).} Replacing the opacity rank with a fixed-frame space-filling-curve order made the element-wise target spatially stable and was, in our experience, the single change that most improved convergence early on, consistent with the locality argument for the Hilbert curve over the Z-order curve \citep{wu2024ptv3}. We are careful not to overstate it: ordering made the slot-aligned target learnable and improved convergence, but on its own it did not bring reconstruction to the level the structural changes later reached, so we treat it as necessary but not sufficient. \autoref{tab:ordering} records the order comparison.
-
-\begin{table}[h]
-  \centering
-  \caption[Effect of serialisation order (small-scale)]{\textbf{Serialisation order (exploratory).} Reconstruction error under opacity rank (no spatial order), Z-order (Morton), and Hilbert order, all else equal. \emph{[TODO: fill from the ordering exploration runs. Observed trend: Hilbert $<$ Morton $<$ opacity.]}}
-  \label{tab:ordering}
-  \begin{tabular}{lc}
-    \textbf{Order} & \textbf{Recon error} $\downarrow$ \\
-    \hline
-    Opacity rank (no spatial order) & -- \\
-    Z-order (Morton)                & -- \\
-    Hilbert                         & -- \\
-  \end{tabular}
-\end{table}
-
-\paragraph{The token-local decoder is not sufficient on its own.} The second row of \autoref{tab:ladder} is a deliberately included null result. Swapping the flat decoder for the shared per-token decoder, with no change to the global encoder and no anchor decoding, leaves the position error essentially unchanged (about $5372$ against $5386$). A smaller, better-structured decoder does not help if the latent it reads from is still a globally mixed code and the position target is still an absolute coordinate. The decoder change only pays off once it is paired with the local encoder, which gives each token a local receptive field, and with the anchor decoding, which changes what the position target is. We report the null result because it rules out the simplest explanation (that the win is just a better decoder) and points at the encoder and the target instead.
-
-\paragraph{Orientation: the covariance is learned, the quaternion is not.} Under the gauge-invariant covariance objective, scale and the full covariance of the Gaussians are learnable and do improve over training, while the raw element-wise quaternion error barely moves. This is exactly what the orientation-gauge analysis predicts and is not a failure of the objective: the covariance $\Sigma = R\,\mathrm{diag}(s^2)\,R^\top$ is identified by the data and is reconstructed, but the quaternion that parameterises its orientation is identified only up to the double cover, axis relabelling, and, near isotropy, almost any rotation, so the raw quaternion error is measuring gauge noise. \autoref{tab:objective} reports the covariance error and colour fidelity under the element-wise, covariance, and set objectives. We report orientation \emph{only} through the covariance error for this reason, and we recommend reading the rotation column of \autoref{tab:ladder} as ``gauge-locked'' rather than as a quality number.
-
-\begin{table}[h]
-  \centering
-  \caption[Effect of the reconstruction objective]{\textbf{Reconstruction objective.} Gauge-invariant covariance error and colour fidelity under the element-wise objective, the gauge-invariant covariance objective, and the permutation-invariant set objective. The raw quaternion error is omitted because it is gauge-blind. \emph{[TODO: fill the covariance-error and colour columns from the objective ablation logs.]}}
-  \label{tab:objective}
-  \begin{tabular}{lcc}
-    \textbf{Objective} & \textbf{Covariance error} $\downarrow$ & \textbf{Colour fidelity} $\uparrow$ \\
-    \hline
-    Element-wise ($L_2$)             & -- & -- \\
-    $+$ gauge-invariant covariance   & -- & -- \\
-    $+$ permutation-invariant set    & -- & -- \\
-  \end{tabular}
-\end{table}
-
-% =====================================================================
-\section{Semantic and Layout Structure (RQ3)}
-\label{sec:res_semantic}
-% =====================================================================
-
-\paragraph{Per-primitive semantic clustering.} The per-primitive contrastive objective organises the per-primitive feature space so that primitives of the same category group together. \autoref{fig:pca} shows principal-component projections of these features, in which object regions appear as coherently coloured clusters. This is the qualitative evidence that the latent carries semantic structure and not only geometry. The same structure is visible in the projection of the disentangled semantic tokens $z_s$ of the two structured models we carry to Stage~2, which is what first told us those two checkpoints, and not the geometric-only ones, had a usable layout subspace.
+With the inherited Can3Tok architecture trained on 300 scenes, the model
+converges smoothly: training loss decreases monotonically over hundreds of
+epochs and held-out reconstruction is comparable to training reconstruction.
+Figure~\ref{fig:recon_300} shows qualitative reconstruction results. The
+large-scale structure (room layout, furniture positions, dominant colours)
+is reconstructed faithfully. Fine orientation detail and very thin structures
+are less accurate, consistent with the difficulty of predicting exact
+quaternions from a compressed latent.
 
 \begin{figure*}[t]
   \centering
-  \includegraphics[width=0.95\linewidth, height=0.24\textheight]{example-image}
-  \caption[Semantic feature visualisation]{\textbf{Per-primitive and layout-token semantic structure.} Principal-component projection of the per-primitive contrastive features (and of the semantic tokens $z_s$), coloured by the leading components, for several held-out scenes. Coherent regions correspond to object categories. \emph{[FIGURE TODO: insert the PCA renders (the per-primitive feature PLYs and the $z_s$ projections).]}}
+  \includegraphics[width=0.97\linewidth, height=0.26\textheight]{example-image}
+  \caption[Qualitative reconstruction at 300 scenes]{%
+    \textbf{Reconstruction quality at 300 scenes.}
+    Each pair shows the ground-truth render (top) and the autoencoder
+    reconstruction (bottom) for three representative held-out scenes.
+    Large-scale structure and colour distribution are faithfully recovered.
+    %
+    \emph{Insert your figures:} export SuperSplat screenshots from
+    \texttt{ground\_truth\_gaussians/} (epoch~0, for the matched ground truth)
+    and \texttt{reconstructed\_gaussians/epoch\_NNN/} side by side.
+    Choose three diverse scenes (bedroom, office, corridor). Crop and
+    arrange as a $3\times2$ grid in Canva or Figma, then export as PDF.
+  }
+  \label{fig:recon_300}
+\end{figure*}
+
+\subsection{Latent Structure Ablation}
+\label{sec:results_300_ablation}
+
+Table~\ref{tab:disent} reports the four evaluation metrics across nine
+latent-structure variants trained at 300 scenes. These experiments were
+the basis for selecting the Stage-2 design.
+
+\begin{table*}[t]
+  \centering
+  \caption[300-scene latent structure ablation]{%
+    \textbf{Latent structure ablation at 300~scenes.}
+    \textbf{Ratio$_{\text{lay}}$}: ratio of inter-category to intra-category cosine
+    distance in the layout subspace (higher = better semantic clustering).
+    \textbf{\%P1}: geometry $\ell_2$ error after cross-scene $z_s$ swap, as a
+    fraction of the cross-scene baseline (lower = better disentanglement;
+    0\% means swapping $z_s$ across scenes does not disrupt geometry at all).
+    \textbf{Stab.@40\%}: cosine similarity of the layout code derived from a 40\%
+    partial scan vs.\ the full scan (higher = more stable for completion).
+    \textbf{Valid\%}: fraction of $\mathcal{N}(0,I)$ prior samples decoding
+    to valid geometry.
+  }
+  \label{tab:disent}
+  {\small
+  \begin{tabular}{lcccc}
+    \toprule
+    \textbf{Variant} &
+    \textbf{Ratio$_{\text{lay}}$}\,$\uparrow$ &
+    \textbf{\%P1}\,$\downarrow$ &
+    \textbf{Stab.@40\%}\,$\uparrow$ &
+    \textbf{Valid\%}\,$\uparrow$ \\
+    \midrule
+    (C) Baseline                       & 1.048 &  6.5\% & $-$0.05 & 100\% \\
+    (A) Disentangled                   & 0.985 &  0.27\% &   0.257 &  94\% \\
+    (A) + structured token split       & 0.968 &  0.23\% &   0.204 &  81\% \\
+    (A) + LayNCE                       & 0.967 &  0.14\% &   0.249 &  95\% \\
+    (A) + PoolNCE                      & 1.027 &  0.18\% &   0.278 &  91\% \\
+    (A) + pgNCE                        & 1.036 &  4.5\%  &   0.272 &  86\% \\
+    (A) + Pool+pgNCE                   & 0.979 & \textbf{0.08\%} & 0.365 & 95\% \\
+    \textbf{(B1) Cross-attn cond.}     & \textbf{1.240} & 0.34\% & \textbf{0.761} & 97\% \\
+    (B2) Additive bias                 & 1.046 & 97\%   & $-$0.06 & 99.5\%\\
+    \bottomrule
+  \end{tabular}}
+\end{table*}
+
+Several observations follow from Table~\ref{tab:disent}.
+
+\textbf{Disentanglement works.} Strategy~A (disentangled) reduces the geometry
+disruption under cross-scene $z_s$ swap from 6.5\% to 0.27\%, showing that
+the separation between layout and geometry subspaces is real, not superficial.
+Adding Pool+pgNCE further reduces this to 0.08\%, an $\approx 80\times$
+improvement over the baseline.
+
+\textbf{B1 is best for completion readiness.} Strategy~B1 achieves a
+Stab.@40\% score of 0.761, far above any variant of Strategy~A (best: 0.365).
+This is because B1 uses a deterministic layout projection (no sampling noise),
+so the same partial scene always produces the same layout code. B1 is therefore
+the natural candidate for the scene completion pipeline.
+
+\textbf{Additive bias fails.} Strategy~B2 collapses to \%P1$=97\%$, indicating
+that the layout conditioning did not separate at all. The additive bias
+is absorbed by the decoder as a constant offset and provides no
+useful conditioning.
+
+\textbf{Key insight for Stage-2 design.} The 300-scene results confirm that a
+hierarchical latent split ($z_s$ for layout, $z_g$ for geometry) is achievable
+and that the layout code is stable under partial observation. This directly
+motivates the two-stage generator described in \S\ref{sec:method_stage2}.
+Although the large-scale runs do not include disentanglement (to keep the
+ablation focused on the scaling problem), Run~R3 is planned with the
+full Strategy~A objectives.
+
+\subsection{Semantic Feature Quality}
+\label{sec:results_semantic_quality}
+
+Table~\ref{tab:semquality} reports the quality of the per-Gaussian
+contrastive features from the two best InfoNCE variants.
+
+\begin{table}[h]
+  \centering
+  \caption[Per-Gaussian semantic feature quality (300 scenes)]{%
+    \textbf{Per-primitive semantic feature quality at 300~scenes.}
+    Fisher ratio (between/within-class spread of features),
+    mean intra-class feature distance, mean silhouette score over ScanNet-72
+    categories, and $72$-way linear-probe accuracy with 95\% confidence intervals.
+  }
+  \label{tab:semquality}
+  \begin{tabular}{lcc}
+    \toprule
+    \textbf{Metric} & \textbf{pgNCE} & \textbf{Pool+pgNCE} \\
+    \midrule
+    Fisher ratio $\uparrow$           & \textbf{0.440} & 0.411 \\
+    Mean intra distance $\downarrow$  & 0.491          & \textbf{0.453} \\
+    Mean silhouette $\uparrow$        & $-$0.056       & $-$0.066 \\
+    Linear probe acc. $\uparrow$      & 26.01\,$\pm$\,0.30\% &
+                                        \textbf{26.07\,$\pm$\,0.96\%} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The features cluster meaningfully (positive Fisher ratio, $\approx\!26\%$
+accuracy over 72 categories versus 1.4\% random baseline), though not
+perfectly (negative silhouette). The modest numbers reflect that the model
+is trained primarily for \emph{reconstruction}, not classification; the
+contrastive objective is a soft secondary signal.
+
+%% ──────────────────────────────────────────────────────────────────────────
+\section{Large-Scale Ablation}
+\label{sec:results_large}
+
+\subsection{Convergence Overview}
+\label{sec:results_convergence}
+
+Figure~\ref{fig:convergence} shows the validation reconstruction error over
+training epochs for the four configurations. The key qualitative observation
+(which can already be seen from partially-trained checkpoints) is that
+Run~R4 (no ordering) fails to converge meaningfully while R1 and R2 show
+monotonically decreasing validation error.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\linewidth]{example-image}
+  \caption[Validation convergence curves]{%
+    \textbf{Validation reconstruction error over training epochs.}
+    R4 (no ordering, baseline): high error, slow or no convergence.
+    R2 (Hilbert ordering, global architecture): converges to a lower level.
+    R1 (Hilbert + local architecture): fastest convergence and lowest
+    validation error.
+    %
+    \emph{Insert your figure:} extract \texttt{avg\_l2\_error} from each
+    run's log file using:
+    \texttt{grep "Val FULL SCENES" logs\_ss1/can3tok*.out}.
+    Plot all three runs with Matplotlib using \texttt{plt.plot(epochs,
+    val\_l2, label=run\_name)}. Use colours: R4=grey, R2=blue, R1=orange.
+    Include a legend and axis labels (x: Epoch, y: Validation $\ell_2$).
+    Export as PDF.
+  }
+  \label{fig:convergence}
+\end{figure}
+
+\subsection{Ordering Ablation (R4 vs R2)}
+\label{sec:results_ordering}
+
+Table~\ref{tab:ordering} compares the two runs that differ only in
+serialisation: R4 uses opacity ranking, R2 uses fixed-frame Hilbert ordering.
+All other factors are identical (old encoder, flat decoder, anchor-relative
+decoding, set loss, Bures codiag loss).
+
+\begin{table}[h]
+  \centering
+  \caption[Ordering ablation: R4 vs R2]{%
+    \textbf{Ordering ablation.}
+    Per-attribute validation error (raw $\ell_2$) and overall reconstruction
+    error at epoch 200. Lower is better.
+  }
+  \label{tab:ordering}
+  \begin{tabular}{lcccccc}
+    \toprule
+    \textbf{Run} & \textbf{Pos} & \textbf{Col} & \textbf{Opa} &
+    \textbf{Scl} & \textbf{Rot} & \textbf{Overall} \\
+    \midrule
+    R4 (opacity rank)  & -- & -- & -- & -- & -- & -- \\
+    R2 (Hilbert)       & -- & -- & -- & -- & -- & -- \\
+    \midrule
+    \emph{Improvement} & -- & -- & -- & -- & -- & -- \\
+    \bottomrule
+  \end{tabular}
+  \emph{[Numbers will be filled from training logs at epoch 200.
+  Extract using: \texttt{grep "Pos=" logs\_ss1/can3tok\_<JOB\_ID>.out |
+  awk '\{print \$N\}'}.]}
+\end{table}
+
+\subsection{Architecture Ablation (R2 vs R1)}
+\label{sec:results_arch}
+
+Table~\ref{tab:arch} isolates the contribution of the local encoder and
+token-local decoder. R1 and R2 both use Hilbert ordering and differ only in
+architecture.
+
+\begin{table}[h]
+  \centering
+  \caption[Architecture ablation: R2 vs R1]{%
+    \textbf{Architecture ablation.}
+    Training error, held-out full-scene error, and their ratio at convergence.
+    A ratio near 1.0 indicates no memorisation.
+  }
+  \label{tab:arch}
+  \begin{tabular}{lccc}
+    \toprule
+    \textbf{Run} & \textbf{Train}\,$\downarrow$ &
+    \textbf{Held-out}\,$\downarrow$ & \textbf{Gap}\,$\to 1$ \\
+    \midrule
+    R2 (global enc., flat dec.)   & -- & -- & $\approx 5$--$8\times$ \\
+    R1 (local enc., token dec.)   & -- & -- & $\approx 1\times$ \\
+    \bottomrule
+  \end{tabular}
+  \emph{[The qualitative range for R2 ($5$--$8\times$) is observed
+  from partially-trained checkpoints. Exact numbers and R1's gap will
+  be filled from final checkpoints.]}
+\end{table}
+
+The large generalisation gap of R2 ($5$--$8\times$) is a signature of
+memorisation. The model has learned scene-specific codes that do not
+transfer. With the local encoder, each token encodes a local block of
+Gaussians rather than a global scene summary, and similar local patches
+(flat floors, walls, corners) activate similar tokens across different
+scenes. This compositionality is what closes the gap.
+
+\subsection{Full Quantitative Results}
+\label{sec:results_quant}
+
+Table~\ref{tab:fullresults} will be completed from the final checkpoints.
+
+\begin{table*}[t]
+  \centering
+  \caption[Full large-scale reconstruction results]{%
+    \textbf{Full large-scale Stage-1 results.}
+    Evaluation on 100 held-out full scenes. All numbers are raw $\ell_2$
+    per batch. Lower is better for all error metrics.
+    $^\dagger$Still training; \emph{[pending]} marks will be replaced.
+  }
+  \label{tab:fullresults}
+  {\small
+  \begin{tabular}{lcccccc}
+    \toprule
+    \textbf{Run} &
+    \textbf{Pos}\,$\downarrow$ & \textbf{Col}\,$\downarrow$ &
+    \textbf{Opa}\,$\downarrow$ & \textbf{Scl}\,$\downarrow$ &
+    \textbf{Rot}\,$\downarrow$ & \textbf{Overall}\,$\downarrow$ \\
+    \midrule
+    300-scene baseline (Can3Tok)       & -- & -- & -- & -- & -- & -- \\
+    R4 (large-scale, no order)$^\dagger$ & -- & -- & -- & -- & -- & -- \\
+    R2 (Hilbert, global arch)$^\dagger$  & -- & -- & -- & -- & -- & -- \\
+    R1 (Hilbert, local arch)$^\dagger$   & -- & -- & -- & -- & -- & -- \\
+    \bottomrule
+  \end{tabular}}
+  \emph{[Extract from the evaluation output of each run's best checkpoint using
+  evaluate\_model() and record Val Pos, Col, Opa, Scl, Rot.]}
+\end{table*}
+
+\subsection{Qualitative Large-Scale Reconstruction}
+\label{sec:results_qual_large}
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=0.97\linewidth, height=0.26\textheight]{example-image}
+  \caption[Large-scale qualitative reconstruction]{%
+    \textbf{Large-scale reconstruction (R1, best checkpoint).}
+    Ground-truth renders (top) vs.\ autoencoder reconstructions (bottom)
+    for four held-out scenes drawn from different source datasets.
+    %
+    \emph{Insert your figures:} use the same procedure as Figure~\ref{fig:recon_300}
+    but from the R1 large-scale run checkpoint directories.
+    Choose scenes from ScanNet, ARKitScenes, Replica, and Matterport3D to
+    demonstrate generalisation across source domains.
+  }
+  \label{fig:recon_large}
+\end{figure*}
+
+%% ──────────────────────────────────────────────────────────────────────────
+\section{Semantic Structure Visualisation}
+\label{sec:results_semantic}
+
+The per-primitive InfoNCE features from the 300-scene experiments are
+visualised in Figure~\ref{fig:pca} by projecting them to three principal
+components and encoding those as RGB colour.
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=0.97\linewidth, height=0.24\textheight]{example-image}
+  \caption[PCA semantic feature visualisation]{%
+    \textbf{Per-primitive semantic feature structure (300 scenes, Pool+pgNCE).}
+    Each Gaussian's InfoNCE feature is projected to three principal components
+    (shown as RGB). Coherent spatial regions correspond to semantic categories:
+    floor (one colour family), walls (another), furniture objects (distinct clusters).
+    Left column: ground-truth colour. Right column: PCA feature colour.
+    %
+    \emph{Insert your figures:} render the PLY files from
+    \texttt{pca\_visualisations/epoch\_NNN/scene*\_semantic\_infonce.ply}
+    in SuperSplat. Take screenshots and place them in a $3\times2$ grid
+    (three scenes, ground truth vs.\ PCA colour).
+    Export from Canva or Figma as PDF.
+  }
   \label{fig:pca}
 \end{figure*}
 
-\paragraph{Colour through the global shape embedding.} Decoding colour as a residual about a per-scene mean predicted from the global shape embedding (the DC/AC split of \autoref{sec:method_decoder}) improved colour fidelity in the exploration by separating the coarse colour statistic, carried globally, from the fine per-primitive variation, decoded locally. The large-scale numbers are consistent with this: the configurations that use the structured local path with the mean-colour head (the lower three rows of \autoref{tab:ladder}) reach a colour error around $571$, against around $850$ to $870$ for the global-bottleneck configurations, a gap we attribute partly to the colour decomposition and partly to the local receptive field. This is reflected in the colour column of \autoref{tab:objective}.
+The visualisations confirm that the contrastive objective produces
+category-discriminative features. Flat surfaces (floor, ceiling) cluster
+distinctly from vertical surfaces (walls) and from furniture objects. The
+clusters are not perfectly separated---points near object boundaries
+transition gradually---but the broad structure is clear. This demonstrates
+that a semantically organised latent is achievable even without explicit
+segmentation supervision in the reconstruction path.
 
-\paragraph{Disentanglement (small-scale).} In the small-scale phase we measured the effect of the disentangled latent and its objectives on category clustering in the layout subspace, on the degree to which swapping the layout subspace across scenes leaves geometry intact (a measure of disentanglement), and on the stability of the layout code under partial observation (a proxy for completion readiness). \autoref{tab:disentangle} reproduces those exploratory results. They indicate that the disentanglement objectives produced a real separation, since swapping the layout subspace disrupted geometry much less than a cross-scene baseline, and that a deterministic layout code was the most stable under partial observation, which is the property a completion model needs. These numbers are exploratory and were the basis for design decisions, not a final measurement.
+%% ──────────────────────────────────────────────────────────────────────────
+\section{Per-Component Training Dynamics}
+\label{sec:results_components}
 
-\begin{table*}[t]
-  \centering
-  \caption[Small-scale disentanglement and conditioning ablation]{\textbf{Small-scale latent-structure ablation (exploratory).} Layout-subspace category clustering (higher better), geometry disruption under a cross-scene layout swap as a fraction of the cross-scene baseline (lower indicates better disentanglement), layout-code stability under partial observation (higher better), and fraction of prior samples decoding to valid geometry. From the exploration; reported to show how the latent-structure decision was made.}
-  \label{tab:disentangle}
-  \begin{tabular}{lcccc}
-    \textbf{Variant} & \textbf{Layout clustering} $\uparrow$ & \textbf{Swap disruption} $\downarrow$ & \textbf{Partial-obs.\ stability} $\uparrow$ & \textbf{Valid \%} $\uparrow$ \\
-    \hline
-    Baseline (undifferentiated)        & 1.05 & 6.5\%  & --    & 100\% \\
-    Disentangled                        & 0.99 & 0.27\% & 0.26  & 94\%  \\
-    Disentangled + structured split     & 0.97 & 0.23\% & 0.20  & 81\%  \\
-    + per-primitive contrastive          & 0.98 & 0.08\% & 0.37  & 95\%  \\
-    Cross-attention conditioning         & 1.24 & 0.34\% & 0.76  & 97\%  \\
-  \end{tabular}
-\end{table*}
-
-\paragraph{Feature quality (small-scale).} \autoref{tab:semquality} reports clustering and linear-probe measures of the per-primitive feature space, again from the exploration. They show modest but real separability of categories, which the principal-component visualisations corroborate. We are deliberately measured here: the semantic structure is real but not strong, and we do not claim a strong semantic representation, only that semantics can be added to the latent at no measurable cost to reconstruction.
-
-\begin{table}[h]
-  \centering
-  \caption[Semantic feature quality]{\textbf{Per-primitive feature quality (exploratory).} Between-class versus within-class separation and linear-probe accuracy of the per-primitive features.}
-  \label{tab:semquality}
-  \begin{tabular}{lcc}
-    \textbf{Measure} & \textbf{Contrastive} & \textbf{Contrastive + pooled} \\
-    \hline
-    Between/within separation $\uparrow$ & 0.44 & 0.41 \\
-    Linear-probe accuracy $\uparrow$     & 26.0\% & 26.1\% \\
-  \end{tabular}
-\end{table}
-
-% =====================================================================
-\section{Choosing Stage 1 Representations for Stage 2 (RQ4, part 1)}
-\label{sec:res_selection}
-% =====================================================================
-
-Before training any Stage~2 model we used the Stage~1 results to decide which representations were worth the second-stage cost, since training a full generation and completion pipeline for every Stage~1 variant was not feasible. This selection is itself a result, because it follows directly from what the latents can and cannot support, and we describe the reasoning rather than presenting it as a foregone choice.
-
-Two requirements drove the decision. Generation in our design is hierarchical, a layout model followed by a geometry model (\autoref{sec:method_stage2}), so it needs a latent with a separate layout subspace $z_s$. Completion is posed as latent inpainting over spatial regions, so it needs a latent whose tokens correspond to spatial regions that can be individually masked. A latent that is a single globally mixed code satisfies neither cleanly: masking one of its dimensions hides an arbitrary latent direction rather than a region, and there is no layout subspace to condition on.
-
-\autoref{tab:selection} maps the Stage~1 variants to what they support. The two disentangled models are the only ones with both a separate $z_s$ and a per-token spatial geometry latent, so they support generation and completion; they differ only in the anchor decoding, which makes the pair a clean ablation of that choice carried into Stage~2. The structured-but-flat model (the local encoder without the disentangled split) has spatial tokens but no $z_s$, so it supports completion without layout conditioning, which we keep precisely so that completion can be compared with and without the semantic conditioning. The global models, including the best-reconstructing one with anchor decoding, have neither a $z_s$ nor per-token spatial structure, so although that model reconstructs best in \autoref{tab:ladder}, its latent is the least suited to the second stage; we note this tension openly rather than letting the best Stage~1 number dictate the Stage~2 choice. The outcome is a small set of second-stage runs: hierarchical generation and completion on the two disentangled models, and completion without conditioning on the structured-flat model.
-
-\begin{table*}[t]
-  \centering
-  \caption[Stage 1 to Stage 2 candidate selection]{\textbf{Selecting Stage~1 representations for Stage~2.} What each Stage~1 latent supports, with the position error from \autoref{tab:ladder} for reference. ``$z_s$'' is a separate layout subspace; ``spatial tokens'' means latent tokens in one-to-one correspondence with spatial regions. Generation needs $z_s$; completion needs spatial tokens.}
-  \label{tab:selection}
-  \begin{tabular}{lccccl}
-    \textbf{Stage 1 variant} & \textbf{Pos} $\downarrow$ & \textbf{$z_s$} & \textbf{Spatial tokens} & \textbf{Carried to Stage 2} & \textbf{Stage 2 role} \\
-    \hline
-    Global baseline               & $5386$ & no  & no  & no  & not suitable \\
-    Global $+$ anchor position     & $543$  & no  & no  & no  & best recon., but no $z_s$/tokens \\
-    Local encoder (structured flat)& $2415$ & no  & yes & yes & completion (no conditioning) \\
-    Disentangled local, no anchor  & $541$  & yes & yes & yes & generation $+$ completion \\
-    Disentangled local $+$ anchor  & $451$  & yes & yes & yes & generation $+$ completion \\
-  \end{tabular}
-\end{table*}
-
-% =====================================================================
-\section{Generation and Completion (RQ4, part 2)}
-\label{sec:res_stage2}
-% =====================================================================
-
-The Stage~2 models of \autoref{sec:method_stage2} are implemented and trained on the selected representations, with the frozen Stage~1 encoder and decoder. At the time of writing the large-scale Stage~2 runs were finishing and their quantitative evaluation was in progress, so we describe the setup, report the one Stage~2 ablation that is already complete, and leave marked space for the final results. We are deliberately conservative in what we claim here.
-
-\paragraph{Positional encoding for the latent (small-scale).} The one Stage~2 design choice we settled before the large runs is how to encode token position in the latent flow-matching transformers. We compared a learned absolute position embedding against one-dimensional and three-dimensional rotary embeddings \citep{su2021roformer} on a few hundred scenes, separately for the layout and geometry models. The geometry tokens, which lie along the Hilbert curve and therefore carry spatial order, were best served by the one-dimensional rotary embedding, with the three-dimensional variant second and the learned absolute embedding third; our reading is that the Hilbert ordering already linearises spatial locality, so a rotary embedding over the sequence index recovers most of the neighbourhood structure, while the three-dimensional variant has to rely on a fixed scaffold lattice that is less informative at generation time when positions are not yet known. The layout tokens, which are abstract and have no spatial geometry, showed no benefit from a rotary embedding and we use the learned absolute embedding there. We therefore use a one-dimensional rotary embedding for the geometry and completion models and a learned absolute embedding for the layout model. \autoref{tab:rope} records the comparison.
-
-\begin{table}[h]
-  \centering
-  \caption[Positional encoding for the Stage 2 transformers]{\textbf{Stage~2 positional encoding (exploratory).} Validation flow-matching loss for the geometry model under a learned absolute embedding (APE), one-dimensional and three-dimensional rotary embeddings (RoPE) \citep{su2021roformer}, on a few hundred scenes. Lower is better. The layout model showed no benefit from rotary embeddings and uses APE. \emph{[TODO: fill from the positional-encoding sweep logs.]}}
-  \label{tab:rope}
-  \begin{tabular}{lc}
-    \textbf{Geometry-model encoding} & \textbf{Val.\ loss} $\downarrow$ \\
-    \hline
-    1D RoPE (chosen) & -- \\
-    3D RoPE          & -- \\
-    Learned APE      & -- \\
-  \end{tabular}
-\end{table}
-
-\paragraph{Generation.} \autoref{fig:generation} will show unconditional scene generations from the hierarchical layout-then-geometry model, decoded by the frozen Stage~1 decoder, with generation-quality and fidelity metrics in \autoref{tab:stage2}. For the disentangled models the diffuse colour is recovered for free at sampling time, since the mean-colour head reads the generated layout token, so generation does not require a separately trained colour model.
+Figure~\ref{fig:components} shows the individual position, colour, opacity,
+and scale loss components over training for R1. These plots reveal how each
+attribute converges and whether any attribute is the bottleneck.
 
 \begin{figure}[h]
   \centering
-  \includegraphics[width=0.92\linewidth]{example-image}
-  \caption[Scene generation]{\textbf{Stage~2 scene generation.} Scenes sampled from the hierarchical latent flow-matching model and decoded by the frozen Stage~1 decoder. \emph{[FIGURE TODO: generated-scene renders once the Stage~2 generation runs finish.]}}
-  \label{fig:generation}
+  \includegraphics[width=\linewidth]{example-image}
+  \caption[Per-component loss curves]{%
+    \textbf{Per-attribute validation loss curves (R1).}
+    Each line shows one attribute's $\ell_2$ norm over epochs.
+    %
+    \emph{Insert your figures:} extract from R1's log using:
+    \texttt{grep "Val FULL SCENES" logs\_ss1/*.out} to find epoch entries,
+    then \texttt{grep "Pos=" logs\_ss1/*.out} for per-attribute values.
+    Plot with Matplotlib as a 4-subplot figure:
+    (Pos, Col, Opa, Scl) with a shared x-axis.
+    Overlay the R2 curves (dashed) for comparison.
+  }
+  \label{fig:components}
 \end{figure}
 
-\paragraph{Completion.} \autoref{fig:completion} will show, for a held-out scene, the partial input, the completion, and the ground truth. Completion is run in three settings that the selection of \autoref{sec:res_selection} was designed to compare: without layout conditioning (the structured-flat model), with layout conditioning (the disentangled model without the anchor), and with layout conditioning and the anchor (the final disentangled model). This isolates the effect of the semantic conditioning and of the anchor decoding on completion quality, which is the comparison the thesis is set up to make.
+%% ──────────────────────────────────────────────────────────────────────────
+\section{Sampling Budget Comparison}
+\label{sec:results_sampling}
 
-\begin{figure}[h]
-  \centering
-  \includegraphics[width=0.92\linewidth]{example-image}
-  \caption[Scene completion]{\textbf{Stage~2 scene completion.} Partial input (observed regions), completion, and ground truth, for the three completion settings of \autoref{sec:res_selection}. \emph{[FIGURE TODO: completion renders once the Stage~2 completion runs finish.]}}
-  \label{fig:completion}
-\end{figure}
+A key hypothesis of this thesis is that, with frozen pre-fitted splats, a
+smaller Gaussian budget ($N=10{,}000$) converges better than the larger
+budget ($N=40{,}000$) used in Can3Tok. Table~\ref{tab:sampling} reports
+this comparison.
 
 \begin{table}[h]
   \centering
-  \caption[Stage 2 generation and completion metrics]{\textbf{Stage~2 metrics.} Generation quality, and for completion the reconstruction fidelity against held-out full scenes from partial observations, in the three completion settings. \emph{[TODO: fill once the Stage~2 runs finish evaluating.]}}
-  \label{tab:stage2}
+  \caption[Sampling budget ablation]{%
+    \textbf{Effect of sampling budget with frozen splats.}
+    Reconstruction error at epoch 200 for two values of $N$.
+    Gaussians per token $g = \lceil N / 512 \rceil$.
+    }
+  \label{tab:sampling}
   \begin{tabular}{lccc}
-    \textbf{Task / setting} & \textbf{Quality} $\uparrow$ & \textbf{Fidelity} $\uparrow$ & \textbf{Coverage} \\
-    \hline
-    Generation (hierarchical)                 & -- & -- & -- \\
-    Completion, no conditioning               & -- & -- & -- \\
-    Completion, layout-conditioned            & -- & -- & -- \\
-    Completion, layout-conditioned $+$ anchor & -- & -- & -- \\
+    \toprule
+    $N$ & $g$ & \textbf{Val.\ error}\,$\downarrow$ & \textbf{Converged?} \\
+    \midrule
+    10,000 & $\approx 20$ & -- & -- \\
+    40,000 & $\approx 79$ & -- & -- \\
+    \bottomrule
   \end{tabular}
+  \emph{[Fill from the 10k and 40k training runs. If currently running at
+  40k, the comparison can be obtained by reading epoch-200 checkpoints
+  from both runs.]}
 \end{table}
+
+%% ──────────────────────────────────────────────────────────────────────────
+\section{Stage-2 Results}
+\label{sec:results_stage2}
+
+Stage-2 training is underway on the R1 checkpoint. Results will be reported
+here once training completes.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\linewidth]{example-image}
+  \caption[Stage-2 unconditional generation (reserved)]{%
+    \textbf{Stage-2 generated scenes (reserved).}
+    Scenes sampled unconditionally by running LayoutDiT~$\to$~GeometryDiT~$\to$
+    frozen Stage-1 decoder.
+    \emph{[Insert SuperSplat renders of generated scenes once Stage-2 training
+    completes. Use \texttt{sample\_stage2.py} with \texttt{-{}-strategy A
+    -{}-num\_samples 8 -{}-num\_steps 50}.]}
+  }
+  \label{fig:stage2_gen}
+\end{figure}

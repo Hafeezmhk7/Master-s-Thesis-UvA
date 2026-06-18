@@ -1,76 +1,149 @@
-% You can choose whether you prefer a single or double column appendix.
-% \onecolumn
+% \onecolumn  % Uncomment for single-column appendix
 
-\chapter{Implementation Details}
-\label{sec:apx:first_appendix}
+\chapter{Implementation and Reproducibility Details}
+\label{chap:appendix}
 
-This appendix records the architecture, the training configuration, the data, the gauge-invariant objective, and the evaluation metrics in enough detail to reproduce the experiments. As stated in \autoref{sec:methodology}, the thesis is intended to be readable without it.
+This appendix records all configuration details needed to reproduce the
+experiments. The main thesis body is self-contained without it.
 
-% ---------------------------------------------------------------------
-\section{Model Architecture and Dimensions}
-% ---------------------------------------------------------------------
+%% ──────────────────────────────────────────────────────────────────────────
+\section{Architecture Dimensions}
+\label{sec:apx_arch}
 
-The encoder is a cross-attention Perceiver. A set of learned query tokens cross-attends to the input Gaussian set and is followed by self-attention; one query summarizes the scene globally and the remaining queries carry per-region geometry. The transformer width is $384$, with $12$ attention heads, $6$ encoder self-attention layers, and $12$ decoder layers, and the Fourier position embedding uses $8$ frequency bands. The latent has $512$ tokens of dimension $32$, so the latent carries $512 \times 32$ values; the per-token dimension is the capacity knob, with the token count pinned to the number of Hilbert blocks.
+All runs use the configuration in Table~\ref{tab:apx_arch}.
 
-In the structured, spatially local configuration used for the large-scale model, the encoder is windowed: each geometry query attends only to a local window of Hilbert blocks around its own block (a half-width of one block in the reported run), with a single global query attending to all primitives, so that latent token $k$ encodes the local geometry of block $k$. The decoder is token-local: a shared per-token network decodes each token's slice of the primitives, replacing the flat decoder that otherwise dominates the parameter count. Position is decoded anchor-relative in the spirit of Scaffold-GS \citep{lu2024scaffold}: each primitive's position is an anchor (the per-block centroid) plus a bounded local offset, with the bound a single learnable global scale initialized at $2.0$. A Fourier decoder position embedding over a fixed scaffold grid is added to the decoder tokens. The latent-disentanglement and cross-attention conditioning variants of \autoref{sec:method_latent} share this encoder and differ only in how the latent is split and how the decoder is conditioned.
-
-% ---------------------------------------------------------------------
-\section{Training Configuration}
-% ---------------------------------------------------------------------
-
-The large-scale model is trained on two H100 GPUs in \texttt{bfloat16} mixed precision with distributed data parallelism. The batch size is between $64$ and $90$ depending on the configuration. Optimization uses AdamW with a learning rate of $10^{-4}$, weight decay $10^{-2}$, a linear warmup of $300$ steps, and a cosine schedule with warm restarts. The KL weight is fixed at $10^{-5}$, deliberately small so that the latent is lightly regularized and the second-stage generator can model its distribution. The reconstruction objective in the reported run combines the permutation-invariant set loss (entropic optimal transport with a regularization of $0.05$ and $50$ iterations, with unit position and opacity weights) with the gauge-invariant covariance term (the co-diagonalization Bures surrogate, with a small isotropic regularizer, fifteen Newton-Schulz iterations, and a shape weight of $5.0$). Colour is decoded as a residual about a per-scene mean predicted from the global embedding, with a mean-colour weight of $0.5$ and a colour weight of $2.0$. The per-primitive contrastive objective uses the hidden-feature variant with a weight of $0.4$, a temperature of $0.10$, and a balanced subsample of primitives per scene. The Gaussian set is serialized along a fixed-frame Hilbert curve over the canonical radius, and primitives are selected by opacity rank. The sampling-budget ablation of \autoref{tab:sampling} varies the number of sampled primitives between roughly $10$k and $40$k with all else fixed.
-
-Each Gaussian is represented by fourteen values: a three-dimensional position, a three-dimensional colour (a residual when the colour-residual decomposition is used), a scalar opacity, a three-dimensional scale, and a four-dimensional quaternion in $(w, x, y, z)$ order. Scale is decoded in linear space, which the covariance objective requires in order to assemble $\Sigma = R\,\mathrm{diag}(s^2)\,R^\top$.
-
-% ---------------------------------------------------------------------
-\section{Configurations of the Ablation Runs}
-% ---------------------------------------------------------------------
-
-\autoref{tab:apx_runs} lists the configurations behind the reconstruction ladder of \autoref{tab:ladder}. All runs share the same training mixture, the $512$-token latent of width $32$, the Hilbert serialisation, opacity sampling at $40{,}000$ primitives per scene, the colour-residual decomposition, and the Fourier decoder position embedding; they differ only in the encoder, the decoder, the anchor-relative position decoding, and the latent split. ``Reorder'' marks the runs that additionally apply the Morton-index reordering pass on top of the Hilbert blocks. The position error is the best held-out full-scene value from \autoref{tab:ladder}; the entry for the reorder-only run is left blank because its summary was not available when this table was assembled and should be filled from its log.
-
-\begin{table*}[t]
+\begin{table}[h]
   \centering
-  \caption[Configurations of the ablation runs]{\textbf{Ablation-run configurations.} The seven Stage~1 runs behind \autoref{tab:ladder}, by encoder (global bottleneck or windowed local), decoder (flat or token-local), anchor-relative position decoding, latent organisation (undifferentiated, structured per-token without a semantic split, or disentangled into $z_s$ and $z_g$), and the optional Morton reorder. Position error is the best held-out full-scene value.}
-  \label{tab:apx_runs}
-  \begin{tabular}{llllll c}
-    \textbf{Run} & \textbf{Encoder} & \textbf{Decoder} & \textbf{Anchor} & \textbf{Latent} & \textbf{Reorder} & \textbf{Pos} $\downarrow$ \\
-    \hline
-    E1 & global & flat        & no  & undifferentiated      & no  & $5386$ \\
-    E2 & global & flat        & no  & undifferentiated      & yes & -- \\
-    E3 & global & flat        & yes & undifferentiated      & yes & $543$ \\
-    E4 & global & token-local & no  & undifferentiated      & no  & $5372$ \\
-    E5 & local  & token-local & no  & structured per-token  & no  & $2415$ \\
-    E6 & local  & token-local & yes & disentangled ($z_s,z_g$) & yes & $\mathbf{451}$ \\
-    E7 & local  & token-local & no  & disentangled ($z_s,z_g$) & yes & $541$ \\
+  \caption{Architecture configuration (all runs).}
+  \label{tab:apx_arch}
+  \begin{tabular}{ll}
+    \toprule
+    \textbf{Parameter} & \textbf{Value} \\
+    \midrule
+    Transformer width $w$ & 384 \\
+    Attention heads & 12 \\
+    Encoder self-attn layers & 6 (global) / 0 (local) \\
+    Encoder window half-width $\omega$ & 1 (local only) \\
+    Decoder layers & 12 \\
+    Latent token count $T$ & 512 \\
+    Per-token dimension $d$ & 32 \\
+    Fourier frequencies & 8 \\
+    Offset scale $\rho$ init & 2.0 \\
+    Scaffold mode & \texttt{hilbert\_block} (R1,R2,R3) / \texttt{voxel} (R4) \\
+    \bottomrule
   \end{tabular}
-\end{table*}
+\end{table}
 
-% ---------------------------------------------------------------------
-\section{Data and Preprocessing}
-% ---------------------------------------------------------------------
+\paragraph{Input feature construction.}
+Each of the $N$ Gaussians contributes an 18-dimensional raw feature:
+voxel-centre coordinates (3, FNV-hashed $40^3$ grid), voxel ID (1),
+normalised position (3), colour (3), opacity (1), scale (3), quaternion (4).
+A Fourier encoding of the voxel centre and the position (8 frequencies each,
+$2\times3\times8=48$ dims each) plus the raw geometric parameters (8 dims)
+give $110$ inputs per Gaussian, projected to $w=384$ by a linear layer.
 
-Training uses SceneSplat-7K \citep{li2025scenesplat}. The main set is a collection of indoor chunks expressed in a global per-scene coordinate frame, obtained by combining all chunks of a scene to compute one normalization factor so that all chunks of a room share a coordinate system. Additional full scenes from several indoor sources are added, each normalized per scene to the same canonical radius; per-primitive semantic labels are present only on the chunk subset, so the semantic objective is active there and disabled on the additional sources, which avoids a cross-source label-taxonomy collision. Validation uses held-out full scenes for the primary metric and a disjoint set of held-out chunks for the distribution-gap diagnostic; the chunk split is constructed so that the training and held-out chunks never overlap.
+%% ──────────────────────────────────────────────────────────────────────────
+\section{Training Configuration}
+\label{sec:apx_training}
 
-Positions are normalized into a canonical sphere of fixed radius. Colours are scaled to the unit interval and, when the residual decomposition is used, the per-scene mean is subtracted. A fixed budget of primitives is selected per scene by opacity, then reordered along the Hilbert curve so that array index corresponds to a spatially stable location, which is what makes the slot-aligned reconstruction target learnable.
+\begin{table}[h]
+  \centering
+  \caption{Training hyperparameters (all large-scale runs).}
+  \label{tab:apx_train}
+  \begin{tabular}{ll}
+    \toprule
+    \textbf{Hyperparameter} & \textbf{Value} \\
+    \midrule
+    Optimiser & AdamW \\
+    $\beta_1, \beta_2$ & 0.9, 0.999 \\
+    Weight decay & $10^{-2}$ \\
+    Base learning rate & $10^{-4}$ \\
+    LR schedule & Cosine decay with warm restarts \\
+    Restart period $T_0$ & 800 epochs \\
+    Warmup steps & 300 \\
+    LR floor ratio & 0.1 \\
+    KL weight $\beta$ & $10^{-5}$ \\
+    Gradient clip & 10.0 \\
+    Mixed precision & bf16 \\
+    Hardware & 4$\times$ H100 (DDP) \\
+    Batch size & 64 per GPU (256 effective) \\
+    \midrule
+    Colour residual weight & 0.5 \\
+    Colour loss weight & 2.0 \\
+    Bures shape weight $w_\text{cov}$ & 5.0 \\
+    Sinkhorn $\varepsilon$ & 0.05 \\
+    Sinkhorn iterations & 50 \\
+    Eval every & 10 epochs \\
+    \bottomrule
+  \end{tabular}
+\end{table}
 
-% ---------------------------------------------------------------------
-\section{Gauge-Invariant Covariance Objective}
-% ---------------------------------------------------------------------
+%% ──────────────────────────────────────────────────────────────────────────
+\section{Dataset Details}
+\label{sec:apx_data}
 
-The covariance objective compares the Gaussians through their covariance matrices rather than through the raw scale and quaternion, which removes the unlearnable orientation gauge described in \autoref{sec:method_overview}. For a predicted Gaussian with covariance $\Sigma_p$ and a target with covariance $\Sigma_t$, the shape discrepancy is the squared Bures distance
-\begin{equation}
-  d_{\mathrm{B}}^2(\Sigma_p, \Sigma_t) = \mathrm{tr}\!\left(\Sigma_p + \Sigma_t - 2\big(\Sigma_t^{1/2}\Sigma_p\,\Sigma_t^{1/2}\big)^{1/2}\right),
-\end{equation}
-which is the squared 2-Wasserstein distance between zero-mean Gaussians \citep{villani2009ot}. In practice we use the stable co-diagonalization surrogate $\lVert \Sigma_p^{1/2} - \Sigma_t^{1/2}\rVert_F^2$, which equals the Bures distance when the two covariances commute and is cheaper and better conditioned at coincident eigenvalues. Symmetric positive-definite square roots are computed by a trace-normalized Newton-Schulz iteration, which is differentiable and stable even at degenerate eigenvalues, with all covariance arithmetic carried out in single precision. The permutation-invariant set loss folds the same covariance square root into a per-primitive feature, so that a single Euclidean distance in feature space equals the weighted sum of the position, colour, opacity, and Bures-shape costs, and the within-block assignment is then solved by entropic optimal transport \citep{cuturi2013sinkhorn} before the matched pairs are scored.
+\paragraph{Training set.}
+Main training: 3,800 interior chunks from ScanNet/Matterport3D/Replica,
+preprocessed at $8{\times}8$ tile stride with $6{\times}6$ overlap.
+Each chunk includes a \texttt{norm\_factor.npy} file encoding the global
+room coordinate frame (centre + scale). Semantic labels (ScanNet-72) are
+active for these chunks.
 
-% ---------------------------------------------------------------------
-\section{Second-Stage Configuration}
-% ---------------------------------------------------------------------
+Additional full scenes (semantic labels disabled): 800 interior full scenes,
+1,290 ARKitScenes, 856 ScanNet++ v2. Total training: $\approx$6,746 scenes.
 
-The second-stage models are flow-matching transformers in the style of a diffusion transformer \citep{peebles2023dit}, trained with the rectified-flow objective \citep{lipman2023flowmatching,liu2023rectified} on the frozen Stage~1 latent. The Stage~1 encoder and decoder are held fixed during all second-stage training: their parameters are frozen and set to evaluation mode, and the latent is encoded under no-gradient, so only the transformers are optimised. Each transformer uses a width of $384$, a depth of $12$, and $12$ attention heads, which is on the order of thirty to forty million parameters per model.
+\paragraph{Validation.}
+Primary: 100 held-out full scenes from \texttt{interior\_gs/val/}
+(per-scene normalisation).
+Secondary: 88 held-out chunks (sorted after the first 3,800 training chunks;
+disjoint by construction; global-frame normalisation via shared
+\texttt{norm\_factor.npy}).
 
-Token position is encoded with a one-dimensional rotary embedding \citep{su2021roformer} for the geometry and completion models, whose tokens lie along the Hilbert curve, and a learned absolute embedding for the layout model, whose tokens are abstract; this follows the small ablation of \autoref{sec:res_stage2}. Generation uses the hierarchical pair of \autoref{sec:method_stage2}: a layout model transports noise to the layout tokens, and a geometry model transports noise to the geometry tokens conditioned on the layout tokens through the same cross-attention interface used in the Stage~1 conditioning decoder. Completion fixes the encoded observed tokens and denoises the masked tokens; in the reported setup the observed and masked tokens are obtained by masking a contiguous block coverage of the latent of a fully encoded scene, so that each masked token corresponds to a spatial region. Because each model trains by encoding scenes on the fly rather than from a cache of precomputed latents, the second stage reuses the same training mixture as Stage~1 so that the frozen encoder is applied in-distribution. The three second-stage settings of \autoref{sec:res_selection}, namely generation and completion on the two disentangled checkpoints and completion without conditioning on the structured-flat checkpoint, share this configuration and differ only in which Stage~1 latent they consume and whether a layout model is present.
+\paragraph{Data loading.}
+\texttt{--no\_preload} is used due to the large training mix
+($\approx$34\,GB per DDP rank at preload). The validation sets are always
+preloaded (sampled once, frozen for the run).
 
+%% ──────────────────────────────────────────────────────────────────────────
 
+\section{Diagram Making Guide}
+\label{sec:apx_diagrams}
 
-Reconstruction is reported as the parameter-space error, both as an aggregate and broken down by attribute, using the same reduction in training and validation so that the two are on the same scale. Because the raw quaternion error is blind to the orientation gauge, orientation and shape are additionally reported through a gauge-invariant covariance error, namely the mean per-primitive Bures and log-Euclidean distance between predicted and target covariances, together with the mean anisotropy of the target Gaussians, which indicates how much orientation is even constrained. Render fidelity is reported with peak signal-to-noise ratio, structural similarity \citep{wang2004ssim}, and the learned perceptual metric LPIPS \citep{zhang2018lpips} on images rendered from the predicted and ground-truth Gaussians. Generalization is monitored by the ratio of held-out to in-distribution error, where a ratio near one indicates no overfitting. Semantic structure is assessed qualitatively by principal-component visualizations of the per-primitive features and quantitatively by between-class versus within-class separation and a linear probe.
+All architecture diagrams in this thesis have placeholder captions. We
+recommend the following platforms for creating the final versions:
+
+\paragraph{draw.io (diagrams.net).}
+Free, web-based, at \url{https://app.diagrams.net/}. Supports multi-layer
+diagrams, custom shapes, and PDF/PNG export. Suitable for all pipeline
+and architecture diagrams (Figures~\ref{fig:pipeline}, \ref{fig:decoder},
+\ref{fig:encoder}, \ref{fig:stage2}).
+
+\emph{How to use:} Open a new diagram $\to$ drag rectangle shapes for
+model blocks $\to$ use arrows for data flow $\to$ colour by function
+(blue = encoder, orange = decoder/generator, green = latent, grey = data)
+$\to$ File~$\to$~Export As~$\to$~PDF.
+
+\paragraph{Matplotlib (Python).}
+For quantitative plots (Figures~\ref{fig:hilbert}, \ref{fig:convergence},
+\ref{fig:components}), use the scripts below. All required data is in
+the Snellius log files.
+
+\begin{verbatim}
+# Extract convergence data from log files
+grep "Val FULL SCENES" logs_ss1/can3tok_<JOB>.out \
+  | awk '{print $4, $6}' > val_loss_r1.txt
+# Then plot with matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+data = np.loadtxt('val_loss_r1.txt')
+plt.plot(data[:,0], data[:,1], label='R1')
+plt.xlabel('Epoch'); plt.ylabel('Val L2 error')
+plt.legend(); plt.savefig('convergence.pdf')
+\end{verbatim}
+
+\paragraph{SuperSplat.}
+For qualitative reconstruction figures (Figures~\ref{fig:recon_300},
+\ref{fig:recon_large}, \ref{fig:pca}): upload the PLY files from
+\texttt{reconstructed\_gaussians/} and \texttt{ground\_truth\_gaussians/}
+to \url{https://playcanvas.com/supersplat/editor}, take screenshots,
+and compose side-by-side in Canva or Figma.
