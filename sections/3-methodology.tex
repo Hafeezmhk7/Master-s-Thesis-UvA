@@ -77,11 +77,29 @@ Two design points are critical here. First, the locality property of the Hilbert
 
 \begin{figure}[t]
   \centering
-  \todo{Insert Hilbert vs opacity scatter plot here. Run make\_hilbert\_figure.py on Snellius, save as hilbert\_ordering.png at 300 DPI, upload to media/figures/.}
+  % \todo{Insert Hilbert vs opacity scatter plot here. Run make\_hilbert\_figure.py on Snellius, save as hilbert\_ordering.png at 300 DPI, upload to media/figures/.}
   \caption[Hilbert vs.\ opacity ordering]{%
     \textbf{Slot ordering stability.} Two top-down scatter plots of the same
     scene's 10k highest-opacity Gaussians, coloured by their array index from
-    blue (slot~0) to red (slot~$N{-}1$). With opacity ordering (left), index
+    blue (slot~0) to red \begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{media/figures/hilbert_ordering.png}
+  \caption[Hilbert vs.\ opacity ordering]{%
+    \textbf{Slot ordering stability.}
+    Top-down scatter of 80{,}000 Gaussians from a held-out validation scene,
+    coloured by array index from purple (slot~0) to yellow (slot~$N{-}1$).
+    \emph{Left:} opacity-ranked order — consecutive slots correspond to
+    different spatial regions (the ceiling receives high-opacity slots, the
+    floor low-opacity slots), so slot~$i$ maps to a different physical
+    location in every scene.
+    \emph{Right:} Hilbert-ordered in a fixed $\pm10$\,m canonical frame —
+    colour sweeps smoothly across the room, and consecutive slots are always
+    spatial neighbours (mean consecutive distance $0.03$\,m vs $0.06$\,m
+    with opacity ordering).
+    This spatial stability is what makes the slot-aligned $\ell_2$
+    reconstruction target learnable across scenes.}
+  \label{fig:hilbert}
+\end{figure}. With opacity ordering (left), index
     is scattered so slot~$i$ corresponds to different physical locations across
     scenes. With Hilbert ordering (right), index forms a smooth spatial
     gradient, making the slot-aligned $\ell_2$ target learnable.}

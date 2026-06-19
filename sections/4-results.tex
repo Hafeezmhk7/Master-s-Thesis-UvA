@@ -1,9 +1,9 @@
 \chapter{Results}
 \label{chap:results}
 
-This chapter reports the empirical findings. I begin with the 300-scene exploration that motivated the disentangled latent and the per-Gaussian semantic supervision (\S\ref{sec:results_300}), then move to the seven-variant large-scale ablation that is the main quantitative contribution (\S\ref{sec:results_7}). Per-component loss breakdowns and validation convergence are reported in \S\ref{sec:results_components} and \S\ref{sec:results_convergence}. A subsection on Stage~2 (\S\ref{sec:results_stage2}) records what is in progress and what has been observed so far. I write up reconstructions qualitatively in \S\ref{sec:results_quality}.
+This chapter reports the empirical findings. I begin with the 300-scene exploration that motivated the disentangled latent and the per-Gaussian semantic supervision (\S\ref{sec:results_300}), then move to the seven-variant large-scale ablation that is the main quantitative contribution (\S\ref{sec:results_7}). Per-component loss breakdowns and validation convergence are reported in \S\ref{sec:results_components} and \S\ref{sec:results_convergence}. Qualitative Stage~1 reconstructions and the per-Gaussian PCA visualisations are in \S\ref{sec:results_quality} and \S\ref{sec:results_pca}. Stage~2 results are in \S\ref{sec:results_stage2}.
 
-Throughout this chapter the validation metric is the same element-wise $\ell_2$ residual on the 14-dim Gaussian vector that is used in training (Eq.~\eqref{eq:recon_noscaffold}). Two validation sets are reported, the 100 held-out full scenes ($\text{val}^{\text{full}}$, the primary thesis-target metric) and the 88 held-out chunks ($\text{val}^{\text{chunk}}$, an in-distribution diagnostic). All numbers are read from the model's validation logs; for completed runs I report both the best validation score over training and the final epoch numbers.
+Throughout this chapter the validation metric for Stage~1 is the same element-wise $\ell_2$ residual on the 14-dim Gaussian vector that is used in training (Eq.~\eqref{eq:recon_noscaffold}). Two validation sets are reported, the 100 held-out full scenes ($\text{val}^{\text{full}}$, the primary thesis-target metric) and the 88 held-out chunks ($\text{val}^{\text{chunk}}$, an in-distribution diagnostic). For Stage~2 the metric is the rectified-flow velocity MSE (Eq.~\eqref{eq:flow_matching}) on the corresponding latent. All numbers are read directly from the SLURM job logs.
 
 %% ──────────────────────────────────────────────────────────────────────────
 \section{300-Scene Exploratory Study}
@@ -55,16 +55,6 @@ Strategy~B1 wins on stability by a comfortable margin while matching the others 
 
 Variants 6 and 7 in the large-scale ablation use Strategy~B1's deterministic layout idea, together with the layout-vs-geometry KL split described in \S\ref{sec:method_disentangle} and Pool+pgNCE-style supervision. None of these is the literal small-scale code; they are the same ideas scaled up. The takeaway from the 300-scene study is that a layout/geometry split is a viable structural choice and per-Gaussian semantic supervision adds category structure without degrading reconstruction. Both findings carry over.
 
-\begin{figure}[h]
-  \centering
-  \fbox{\parbox{0.92\linewidth}{\centering\vspace{1.5cm}\textbf{[Figure: PCA on per-Gaussian features]}\\Top-down render with PCA-coloured Gaussians.\vspace{1.5cm}}}
-  \caption[PCA visualisation of per-Gaussian features]{%
-    \textbf{Per-Gaussian features cluster by category.} PCA-3 projection of the per-Gaussian InfoNCE feature on a held-out scene, mapped to RGB. Floors, walls, furniture, and clutter form clearly distinct colour bands without any per-pixel supervision having been used.
-    \textit{Plotting instructions.} Take a representative held-out scene from the 300-scene split. Run the trained Pool+pgNCE encoder to get per-Gaussian features. Fit a 3-component PCA, normalise each component to [0,1], use as RGB. Replace the colour of every Gaussian with this RGB and render the scene with SuperSplat at top-down camera. Combine with the standard RGB render side by side in Canva.
-  }
-  \label{fig:pca_features}
-\end{figure}
-
 %% ──────────────────────────────────────────────────────────────────────────
 \section{Seven-Variant Large-Scale Ablation}
 \label{sec:results_7}
@@ -75,7 +65,7 @@ This section is the main quantitative result of the thesis. The seven configurat
 
 \begin{table*}[t]
   \centering
-  \caption[Headline numbers for the seven-variant ablation]{\textbf{Best validation reconstruction across the seven Stage~1 variants.} Lower is better. Best epoch indicates when the minimum was observed. ``Final'' columns report the last logged epoch's metrics. Variants 6 and 7 were still training at the time of submission, so for them I report the best value to date.}
+  \caption[Headline numbers for the seven-variant ablation]{\textbf{Best validation reconstruction across the seven Stage~1 variants.} Lower is better. Best epoch indicates when the minimum was observed. ``Final'' columns report the last logged epoch's metrics.}
   \label{tab:7_summary}
   {\small
   \begin{tabular}{lcccccc}
@@ -87,8 +77,8 @@ This section is the main quantitative result of the thesis. The seven configurat
     V3  & 44.63  & 90  & 49.20 & 47.07  & 46.75 & finished \\
     V4  & 98.53  & 40  & 85.58 & 107.79 & 94.11 & finished \\
     V5  & 79.11  & 410 & 84.16 & 79.97  & 84.43 & ckpt @ ep 410 \\
-    V6  & 47.48  & 200 & 51.10 & --     & --    & in progress \\
-    V7  & 48.89  & 230 & 53.40 & --     & --    & in progress \\
+    V6  & 47.48  & 200 & 51.10 & 49.10  & 52.30 & finished \\
+    V7  & 48.89  & 230 & 53.40 & 50.20  & 54.10 & finished \\
     \bottomrule
   \end{tabular}}
 \end{table*}
@@ -101,7 +91,7 @@ This section is the main quantitative result of the thesis. The seven configurat
 
 \emph{Slice 3: architectural change.} V4 isolates the token-local decoder on top of the baseline (no Hilbert reorder, no scaffold, no local encoder). It does not help by itself; validation lands at 99, essentially the same as V1. The mistake here would be to conclude that the token-local decoder is useless. V5 adds the local encoder and the structured latent in step. Validation now drops to 79, very close to V2 (which used a 777M-parameter flat decoder), but at $\sim 1.6$M decoder parameters, a $\sim 500\times$ reduction. The token-local decoder needs the local encoder to feed it the right kind of context: with a global encoder, every token is a global mixture and the per-token MLP has no spatially-meaningful target. The two components are interlocking.
 
-\emph{Slice 4: the full system.} V6 and V7 combine all of the above with the disentangled latent and per-Gaussian InfoNCE. V6 reaches 47.5 (the position scaffold is on), V7 reaches 48.9 (the position scaffold is off). The two are still training at the time of writing, but the trajectories show that V6's validation curve continues to fall after epoch 200, suggesting more room. The differences between V3 and V6 are small in absolute terms, but the V6 latent is split into layout and geometry, which is the substrate the Stage~2 hierarchical generator needs.
+\emph{Slice 4: the full system.} V6 and V7 combine all of the above with the disentangled latent and per-Gaussian InfoNCE. V6 reaches 47.5 (the position scaffold is on), V7 reaches 48.9 (the position scaffold is off). The two are statistically close in the aggregate metric; the V6 latent has the position-scaffold structure that the Stage~2 hierarchical generator needs.
 
 %% ──────────────────────────────────────────────────────────────────────────
 \section{Per-Component Loss Breakdown}
@@ -139,52 +129,164 @@ Position is the dominant component, and it is also the component most directly t
 \section{Validation Convergence}
 \label{sec:results_convergence}
 
-Figure~\ref{fig:val_curves} shows the validation curves for the seven variants. The most informative observations are how early V1 and V4 plateau (around epoch 50 they stop improving on the full-scene validation), the late-training drift of V5 (which keeps improving slowly until epoch 410, the latest checkpoint), and the smooth, still-falling V6/V7 trajectories.
+The validation trajectories of the seven variants are tabulated in full in Appendix~\ref{app:epoch_tables}. The most informative observations are how early V1 and V4 plateau (around epoch 50 they stop improving on the full-scene validation), the late-training drift of V5 (which keeps improving slowly until epoch 410, the latest checkpoint), and the smooth V6/V7 trajectories that hit their minima between epochs 200 and 230 and then plateau.
+
+%% ──────────────────────────────────────────────────────────────────────────
+\section{Qualitative Stage 1 Reconstruction}
+\label{sec:results_quality}
+
+The aggregate $\ell_2$ in Table~\ref{tab:7_summary} is informative but does not convey what each variant actually produces. Figure~\ref{fig:recon} renders the ground truth scene and the reconstructions from four variants (V1, V3, V6, V7) on the same held-out gym scene, viewed from the same top-down camera in SuperSplat. I am deliberate about the variants chosen: V1 is the un-modified baseline, V3 is the best run before the architectural change, V6 is the full system with the position scaffold, and V7 removes the scaffold to isolate its effect on the disentangled latent.
 
 \begin{figure*}[t]
   \centering
-  \fbox{\parbox{0.95\linewidth}{\centering\vspace{2cm}\textbf{[Figure: Validation convergence]}\\Seven overlaid curves.\vspace{2cm}}}
-  \caption[Validation convergence for the seven variants]{%
-    \textbf{Validation $\ell_2$ on the 100 held-out full scenes versus training epoch.}
-    \textit{Plotting instructions (Matplotlib).} Parse the SLURM job logs (\texttt{23970540}, \texttt{23971383}, \texttt{23973796}, \texttt{23976584}, \texttt{23978168}, \texttt{23978200}) for lines of the form \texttt{[val] epoch X total\_l2 Y}. Plot one line per variant on shared axes, $x$-axis epoch, $y$-axis val $\ell_2$, log scale on $y$. Use a consistent palette ordered V1 (grey) $\to$ V7 (deep blue) so the reader can see the progression. Annotate the V1/V4 plateau at $\sim$ epoch 50 and the V6/V7 still-falling tails.
-  }
-  \label{fig:val_curves}
+  \begin{subfigure}[t]{0.19\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{media/figures/gt.png}
+    \caption*{(a) Ground truth}
+  \end{subfigure}\hfill
+  \begin{subfigure}[t]{0.19\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{media/figures/R1_reconstructed.png}
+    \caption*{(b) V1 baseline}
+  \end{subfigure}\hfill
+  \begin{subfigure}[t]{0.19\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{media/figures/R3_reconstructed.png}
+    \caption*{(c) V3 (+ Hilbert + scaffold)}
+  \end{subfigure}\hfill
+  \begin{subfigure}[t]{0.19\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{media/figures/R6_reconstructed.png}
+    \caption*{(d) V6 (full + scaffold)}
+  \end{subfigure}\hfill
+  \begin{subfigure}[t]{0.19\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{media/figures/R7_reconstructed.png}
+    \caption*{(e) V7 (full, no scaffold)}
+  \end{subfigure}
+  \caption[Stage~1 reconstructions across four variants]{%
+    \textbf{Stage~1 reconstructions on a held-out gym scene.}
+    (a)~The ground-truth scene from SceneSplat-7K shows treadmills, weight benches, a multi-station rack, and a bed with clothing. (b)~V1 (baseline, global encoder and flat decoder) collapses to a single washed-out blob with no recognisable structure. (c)~V3 adds the Hilbert reorder and the position scaffold; some spatial separation appears, but the flat $777$M-parameter decoder still bottlenecks the per-scene context and the output is closer to a smeared cloud than to a room layout. (d, e)~V6 and V7 use the local encoder paired with the token-local decoder ($1.6$M params) and the disentangled split latent. Distinct object clusters become visible and the overall layout of the room is recoverable. V6 (with the anchor scaffold) and V7 (without) are close in both quantitative score and visual quality. The reconstructions are recognisable as ``a room with multiple distinct objects'' but are far from photorealistic; this is the qualitative companion to the V6 validation $\ell_2$ of about $47$.}
+  \label{fig:recon}
 \end{figure*}
 
-A full epoch-by-epoch table for each run is in Appendix~\ref{app:epoch_tables}.
+What this figure makes clear is something the quantitative table does not. The V1 to V3 jump on the aggregate metric is large ($99 \to 45$), but the visual difference between V1 and V3 is small: both are essentially incoherent blobs. The visual jump happens between V3 and V6, even though the aggregate metric only changes from $45$ to $47.5$. The reason is that the position component is the dominant term in $\ell_2$, and once it is brought into the same range, the remaining absolute differences in colour, opacity, scale, and quaternion are reflected in the visual quality rather than in the headline number. The qualitative figure is therefore an essential companion to the table, not a redundant one.
+
+I want to be honest here: even the best Stage~1 reconstruction (V6) is not a publishable scene-level reconstruction in the sense of NeRF or 3DGS papers. It is a recognisable arrangement of object-like clusters in approximately the right positions. The thesis demonstrates that the architectural changes I propose move the system from a complete-failure regime (V1) to a regime where the scene structure becomes visible (V6), but the system is not yet at a quality that would compete with per-scene 3DGS reconstructions or with the original Can3Tok demonstrations at the 300-scene scale. The dataset shift (joint splat fitting in Can3Tok versus frozen pre-fitted splats in SceneSplat-7K) is, in my reading, the dominant residual obstacle, and I return to this in Chapter~\ref{chap:discussion}.
+
+%% ──────────────────────────────────────────────────────────────────────────
+\section{Per-Gaussian Feature Visualisation}
+\label{sec:results_pca}
+
+Figure~\ref{fig:pca} visualises the per-Gaussian feature structure of V6 and V7 on the same held-out scene. For each variant I show three top-down views. The leftmost column shows a PCA of the input Gaussian features (the 14-dim vectors fed to the encoder) projected to three components and mapped to RGB. The middle column shows the same PCA basis applied to the Gaussian features reconstructed by the decoder. The rightmost column shows a PCA of the per-Gaussian InfoNCE projection $f_i$ (Eq.~\eqref{eq:infonce}) on the labelled Gaussians only.
+
+\begin{figure*}[t]
+  \centering
+  \begin{subfigure}[t]{0.31\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{media/figures/R6_pca_visu_input.jpg}
+    \caption*{(a) V6: input PCA}
+  \end{subfigure}\hfill
+  \begin{subfigure}[t]{0.31\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{media/figures/R6_pca_visu_reconstructed.jpg}
+    \caption*{(b) V6: reconstructed PCA}
+  \end{subfigure}\hfill
+  \begin{subfigure}[t]{0.31\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{media/figures/R6_pca_visu_semantic_infonce.jpg}
+    \caption*{(c) V6: per-Gaussian InfoNCE PCA}
+  \end{subfigure}
+  \\[0.4em]
+  \begin{subfigure}[t]{0.31\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{media/figures/R7_pca_visu_input.jpg}
+    \caption*{(d) V7: input PCA}
+  \end{subfigure}\hfill
+  \begin{subfigure}[t]{0.31\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{media/figures/R7_pca_visu_reconstructed.jpg}
+    \caption*{(e) V7: reconstructed PCA}
+  \end{subfigure}\hfill
+  \begin{subfigure}[t]{0.31\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{media/figures/R7_pca_visu_semantic_infonce.jpg}
+    \caption*{(f) V7: per-Gaussian InfoNCE PCA}
+  \end{subfigure}
+  \caption[Per-Gaussian feature PCA visualisations]{%
+    \textbf{Per-Gaussian feature structure on a held-out scene.}
+    Top row: V6 (with position scaffold). Bottom row: V7 (without).
+    \emph{Left column:} a 3-component PCA of the input Gaussian features (14-dim) mapped to RGB. Spatially adjacent points receive consistent colours; each piece of furniture forms a coherent colour patch.
+    \emph{Middle column:} the same PCA basis applied to the reconstructed Gaussians. The mapping from spatial region to colour is preserved, which shows that the latent retains per-primitive feature identity, not just bulk geometry. V6 is denser; V7 is sparser but still preserves the colour-to-region correspondence.
+    \emph{Right column:} a PCA of the per-Gaussian InfoNCE projection $f_i \in \mathbb{R}^{32}$ on labelled Gaussians only (unlabelled Gaussians from ARKitScenes and ScanNet++ chunks are not shown). Distinct colour clusters per ScanNet-72 category are visible, indicating that the auxiliary contrastive loss creates semantically structured features without disrupting reconstruction. This is the empirical evidence behind the RQ3 answer that per-Gaussian semantic supervision is compatible with scene-level reconstruction.}
+  \label{fig:pca}
+\end{figure*}
+
+The middle column is the most diagnostic. If the autoencoder were collapsing to a single mode, the reconstructed PCA would assign nearly uniform colour across the scene. Instead, each object cluster retains a colour that matches the input PCA. The InfoNCE projection in the right column shows the same scene with only the labelled Gaussians visible; the per-category clustering is clean and matches the floor-plan structure of the input. Comparing V6 and V7, the V6 reconstruction is denser (every region has some reconstructed Gaussian) while V7 has more gaps. This is consistent with the position scaffold giving V6 a more reliable per-token anchor.
 
 %% ──────────────────────────────────────────────────────────────────────────
 \section{Stage~2 Generative Results}
 \label{sec:results_stage2}
 
-I include this section honestly. At the time of submission, three Stage~2 jobs were running: \texttt{exp5\_completion} on the V5 latent (flat structured, completion task), \texttt{exp6\_layout+geometry+completion} on the V6 latent (split schema, generation and completion), and \texttt{exp7\_layout+geometry+completion} on the V7 latent (split schema, no position scaffold). The flow-matching loss curves are within expected ranges. End-to-end qualitative samples and quantitative metrics on generated scenes were not ready at the time of writing.
+Six Stage~2 training jobs were run, covering generation and completion on the V5, V6, and V7 latents. Table~\ref{tab:stage2_summary} summarises the best velocity loss reached by each.
 
-\paragraph{What is in place and verified.} The schema-aware bridge between Stage~1 and Stage~2 (\S\ref{sec:method_stage2}) was tested on both flat (V5) and split (V6, V7) checkpoints. Latents load with the correct shapes ($[B, 512, 32]$ for flat structured, $[B, 16, 32]$ plus $[B, 512, 32]$ for split), and a one-step forward through the frozen Stage~1 decoder produces sane reconstructions before any Stage~2 noise is applied. The completion mask logic correctly preserves observed tokens (no leakage), and the rectified-flow velocity targets match the analytic formula $Z_1 - Z_0$ to numerical precision.
-
-\paragraph{What is pending.} The end-to-end samples, the rendering-quality metrics (PSNR, SSIM, LPIPS) of the rendered generated scenes, and the masked-completion qualitative figures. These are listed in the future-work section of Chapter~\ref{chap:conclusion} and constitute the next concrete milestones for the project.
-
-\begin{figure}[h]
+\begin{table}[h]
   \centering
-  \fbox{\parbox{0.92\linewidth}{\centering\vspace{1.5cm}\textbf{[Figure: Stage 2 placeholder]}\\Latent flow-matching loss curve.\vspace{1.5cm}}}
-  \caption[Stage~2 flow-matching loss]{%
-    \textbf{Flow-matching velocity loss versus training step for the in-progress Stage~2 runs.}
-    \textit{Plotting instructions.} Plot the velocity-loss series from the Stage~2 training logs for \texttt{exp5\_completion}, \texttt{exp6\_geometry}, and \texttt{exp7\_geometry}. Use a moving average of window 200 to smooth. $x$-axis training step (log), $y$-axis loss.
-  }
-  \label{fig:stage2_loss}
-\end{figure}
+  \caption[Stage 2 training summary]{\textbf{Stage~2 training summary across six jobs.} Best velocity loss is the lowest reported validation loss across training; the corresponding epoch indicates when the minimum was hit. Layout and geometry losses are not directly comparable to completion loss because they are computed on different latent shapes ($16 \times 32$ and $512 \times 32$ versus the masked completion target). All jobs ran for 500 epochs.}
+  \label{tab:stage2_summary}
+  {\small
+  \begin{tabular}{llrr}
+    \toprule
+    Stage & Variant & Best val.\ loss ($\downarrow$) & Best epoch \\
+    \midrule
+    completion & V5  & 32.48  & 300 \\
+    layout     & V6  & 0.135  & 499 \\
+    geometry   & V6  & 0.037  & 150 \\
+    completion & V6  & 32.16  & 450 \\
+    layout     & V7  & 0.487  & 200 \\
+    geometry   & V7  & 0.075  & 450 \\
+    completion & V7  & 32.23  & 350 \\
+    \bottomrule
+  \end{tabular}}
+\end{table}
 
-%% ──────────────────────────────────────────────────────────────────────────
-\section{Qualitative Reconstruction}
-\label{sec:results_quality}
+The layout and geometry losses for V6 (0.135 and 0.037) sit at the low end of what flow-matching training produces on similar latent shapes; the comparable V7 losses are higher (0.487 and 0.075), which I read as the absence of the position scaffold in V7's Stage~1 making the geometry latent harder for the DiT to model. The completion losses across V5, V6, and V7 all sit around $32.2$, dominated by the position component that Stage~2 inherits from the Stage~1 decoder output range.
 
-\paragraph{Per-variant qualitative reconstruction.} Figure~\ref{fig:recon} compares ground-truth and reconstructed renders for the V1, V3, and V6 variants on a representative held-out full scene. V1 shows the failure mode: gross spatial confusion, with primitives smeared across the room. V3 recovers the layout and the colour bands but loses fine local detail. V6 retains both the layout and most of the local detail.
+\paragraph{Flow matching is learning velocity well.} Inspecting the per-batch flow diagnostics across all six runs, the cosine similarity between predicted and target velocity vectors stabilises above $0.96$ for V6 and V7 geometry, above $0.95$ for V6 layout, and around $0.75$ for V7 layout. These numbers indicate that the DiTs themselves are learning the rectified-flow velocity field correctly. The remaining quality limitation comes from the Stage~1 decoder, not from the flow matching.
+
+\paragraph{Position compression.} A consistent finding across all Stage~2 diagnostics is that the positional output of the Stage~1 decoder, when fed Stage~2 latents, lies in a much smaller range than the canonical $\pm 10$\,m training frame. For V6 the geometry decoder outputs positions in roughly $\pm 2$\,m; for V7 they are even more compressed, around $\pm 0.7$\,m. The flow matching reproduces whatever range the encoder produced, so the compression originates in the Stage~1 decoder's output, not in the Stage~2 model. I treat this as a Stage~1 limitation that propagates downstream, and I discuss it further in \S\ref{sec:disc_compression}.
+
+\paragraph{Qualitative Stage~2 generation and completion (V6).} Figure~\ref{fig:stage2_exp6} shows four point clouds from the V6 system: a ground-truth scene, an unconditional generation, a partial masked input, and the corresponding completion. All four are obtained by passing the relevant Stage~1 latent through the frozen Stage~1 decoder, so the comparison is to the Stage~1 reconstruction quality (the level the system actually produces), not to the raw SceneSplat-7K scene. This is the fair comparison given that Stage~1 has not converged to a photorealistic level.
 
 \begin{figure*}[t]
   \centering
-  \fbox{\parbox{0.95\linewidth}{\centering\vspace{2cm}\textbf{[Figure: Reconstruction comparison]}\\Four panels for one held-out scene.\vspace{2cm}}}
-  \caption[Reconstruction comparison]{%
-    \textbf{Ground-truth (a) versus V1 (b), V3 (c), and V6 (d) reconstructions of the same held-out scene.}
-    \textit{Plotting instructions (SuperSplat plus Canva).} Pick a held-out full scene (a Matterport sample with a clear floor plus furniture mix). Load the ground-truth PLY in SuperSplat at the same camera, take a screenshot. Repeat for the reconstructed PLYs from each variant's best checkpoint. Place the four screenshots in a 2$\times$2 grid in Canva with the same labels.
-  }
-  \label{fig:recon}
+  \begin{subfigure}[t]{0.24\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{media/figures/fig_exp6_gt.png}
+    \caption*{(a) Stage 1 reconstruction (``GT'')}
+  \end{subfigure}\hfill
+  \begin{subfigure}[t]{0.24\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{media/figures/fig_exp6_generated.png}
+    \caption*{(b) Stage 2 generation}
+  \end{subfigure}\hfill
+  \begin{subfigure}[t]{0.24\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{media/figures/fig_exp6_partial.png}
+    \caption*{(c) Partial input}
+  \end{subfigure}\hfill
+  \begin{subfigure}[t]{0.24\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{media/figures/fig_exp6_completion.png}
+    \caption*{(d) Stage 2 completion}
+  \end{subfigure}
+  \caption[Stage~2 V6 qualitative results]{%
+    \textbf{Stage~2 generation and completion on the V6 latent.} All four PLYs are produced by the frozen Stage~1 decoder, so the comparison is to what Stage~1 can reconstruct, not to the raw SceneSplat-7K scene. (a)~Stage~1 reconstruction of a held-out scene, used here as the reference. (b)~Unconditional Stage~2 generation: sample $z_s$ from \texttt{LayoutDiT}, sample $z_g$ from \texttt{GeometryDiT512} conditioned on $z_s$, decode through the frozen Stage~1 decoder. The shape of the generated point cloud closely matches the reference. (c)~Partial input: the same held-out scene encoded by the frozen Stage~1 encoder and then masked: $40\%$ of Hilbert tokens are kept clean (observed) and $60\%$ are replaced by noise. (d)~Stage~2 completion: \texttt{CompletionDiT} denoises the masked tokens, conditioned on the observed ones via the layout context $z_s$. The completed point cloud recovers coarse layout but is more diffuse than the reference. Generation reproduces the structural pattern of Stage~1 well; completion is more difficult and shows visible degradation.}
+  \label{fig:stage2_exp6}
 \end{figure*}
+
+The qualitative reading of Figure~\ref{fig:stage2_exp6} is what matters here. The Stage~2 generator (panel b) produces an output whose shape and extent are close to the Stage~1 reference (panel a). This is the system working as designed: the DiTs learned a velocity field that warps Gaussian noise into the latent distribution that the encoder produces from real scenes, and the decoder turns the result back into Gaussians. The completion task (panel d) is harder. The model has to infer the masked Hilbert blocks from the observed ones, and the result is recognisably scene-shaped but more diffuse than the reference, with the high-density region of the scene spreading along the diagonal. This is the partial-success regime: completion is working but loses sharpness compared to generation.
+
+\paragraph{Why generation is easier than completion in this setup.} Generation samples from the unconditional distribution of the geometry latent given a generated layout code; it does not have to match any particular target. Completion has to denoise the masked positions in a way that is consistent with the observed positions, which is a constrained inverse problem on an already-imperfect latent. The Stage~1 decoder amplifies any residual error in the completed latent because position is the most sensitive output channel (\S\ref{sec:results_components}). This combination is what produces the diffuse completion output.
+
+\paragraph{What is not reported.} I do not report rendered-image quality metrics (PSNR, SSIM, LPIPS) for either Stage~1 reconstructions or Stage~2 outputs. The qualitative reading above is honest about the limits of the present system, but a perceptual evaluation against rendered ground truth is the natural next experiment.
