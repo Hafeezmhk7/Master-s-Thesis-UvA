@@ -77,32 +77,20 @@ Two design points are critical here. First, the locality property of the Hilbert
 
 \begin{figure}[t]
   \centering
-  % \todo{Insert Hilbert vs opacity scatter plot here. Run make\_hilbert\_figure.py on Snellius, save as hilbert\_ordering.png at 300 DPI, upload to media/figures/.}
-  \caption[Hilbert vs.\ opacity ordering]{%
-    \textbf{Slot ordering stability.} Two top-down scatter plots of the same
-    scene's 10k highest-opacity Gaussians, coloured by their array index from
-    blue (slot~0) to red \begin{figure}[t]
-  \centering
   \includegraphics[width=\linewidth]{media/figures/hilbert_ordering.png}
-  \caption[Hilbert vs.\ opacity ordering]{%
+  \caption[Slot ordering stability]{%
     \textbf{Slot ordering stability.}
     Top-down scatter of 80{,}000 Gaussians from a held-out validation scene,
-    coloured by array index from purple (slot~0) to yellow (slot~$N{-}1$).
-    \emph{Left:} opacity-ranked order — consecutive slots correspond to
-    different spatial regions (the ceiling receives high-opacity slots, the
-    floor low-opacity slots), so slot~$i$ maps to a different physical
-    location in every scene.
-    \emph{Right:} Hilbert-ordered in a fixed $\pm10$\,m canonical frame —
-    colour sweeps smoothly across the room, and consecutive slots are always
-    spatial neighbours (mean consecutive distance $0.03$\,m vs $0.06$\,m
-    with opacity ordering).
-    This spatial stability is what makes the slot-aligned $\ell_2$
-    reconstruction target learnable across scenes.}
-  \label{fig:hilbert}
-\end{figure}. With opacity ordering (left), index
-    is scattered so slot~$i$ corresponds to different physical locations across
-    scenes. With Hilbert ordering (right), index forms a smooth spatial
-    gradient, making the slot-aligned $\ell_2$ target learnable.}
+    coloured by array index from purple (slot 0) to yellow (slot $N{-}1$).
+    \emph{Left:} opacity-ranked order: consecutive slots correspond to
+    different spatial regions (the ceiling receives high-opacity slots,
+    the floor low-opacity slots), so slot $i$ maps to a different physical
+    location in every scene. \emph{Right:} Hilbert-ordered in a fixed
+    $\pm 10$\,m canonical frame: colour sweeps smoothly across the room
+    and consecutive slots are always spatial neighbours (mean consecutive
+    distance $0.03$\,m versus $0.06$\,m with opacity ordering). This
+    spatial stability is what makes the slot-aligned $\ell_2$ reconstruction
+    target learnable across scenes.}
   \label{fig:hilbert}
 \end{figure}
 
@@ -222,6 +210,8 @@ Two practical points are easy to miss in the implementation but matter for downs
 \item \textbf{Bounded local offset.} The $\tanh$ bounding is what makes the anchor genuinely informative. Without it, the offset is unbounded and the network can simply offset away from a meaningless anchor, falling back to absolute position prediction. With the $\tanh$, the local-region structure becomes the dominant signal.
 \end{itemize}
 
+A potential limitation of this parameterisation is that $\rho$ is a single global scalar shared across all tokens. If training pressure pushes $\rho$ to a small value, every per-token offset is bounded by the same conservative range, which can systematically narrow the decoder's output extent. I return to this issue in \S\ref{sec:disc_compression} after observing its consequences in the Stage~2 outputs.
+
 %% ──────────────────────────────────────────────────────────────────────────
 \section{Disentanglement and the Two Latent Schemas}
 \label{sec:method_disentangle}
@@ -316,28 +306,28 @@ Table~\ref{tab:configs} summarises which switches are active in each of the seve
 
 \begin{table*}[t]
   \centering
-  \caption[Configuration matrix for the seven Stage~1 variants]{\textbf{Configuration matrix.} A check mark indicates the flag is active in the run, a dash that it is not. Variants are ordered so that each adds one (or sometimes two) switches on top of the baseline. Variants 6 and 7 differ only in whether the position scaffold is on. Variants 1--5 are flat schema (single 512-token latent); variants 6 and 7 are split schema (16-token $z_s$ plus 512-token $z_g$). The colour-residual decomposition and the KL bottleneck are on in every variant.}
+  \caption[Configuration matrix for the seven Stage~1 variants]{\textbf{Configuration matrix for the seven Stage~1 variants.} A check mark indicates the flag is active in the run, a dash that it is not. Variants are ordered so that each adds one (or sometimes two) switches on top of the baseline. Variants 6 and 7 differ only in whether the position scaffold is on. Variants 1--5 are flat schema (single 512-token latent); variants 6 and 7 are split schema (16-token $z_s$ plus 512-token $z_g$). The colour-residual decomposition and the KL bottleneck are on in every variant.}
   \label{tab:configs}
   {\small
   \begin{tabular}{lccccccc}
     \toprule
-                                   & V1 & V2 & V3 & V4 & V5 & V6 & V7 \\
+                                       & V1 & V2 & V3 & V4 & V5 & V6 & V7 \\
     \midrule
-    Hilbert reorder                 & -- & \checkmark & \checkmark & -- & -- & \checkmark & \checkmark \\
-    Position scaffold (Hilbert-block) & -- & -- & \checkmark & -- & -- & \checkmark & -- \\
-    Anchor-relative decoding         & -- & -- & \checkmark & -- & -- & \checkmark & -- \\
-    Token-local decoder              & -- & -- & -- & \checkmark & \checkmark & \checkmark & \checkmark \\
-    Local encoder (window $\omega = 1$) & -- & -- & -- & -- & \checkmark & \checkmark & \checkmark \\
-    Structured per-token latent       & -- & -- & -- & -- & \checkmark & \checkmark & \checkmark \\
-    Local disentangle ($z_s$ + $z_g$) & -- & -- & -- & -- & -- & \checkmark & \checkmark \\
-    Cross-recon $+$ ortho             & -- & -- & -- & -- & -- & \checkmark & \checkmark \\
-    Scene-semantic head               & -- & -- & -- & -- & -- & \checkmark & \checkmark \\
-    Scene-layout head                 & -- & -- & -- & -- & -- & \checkmark & \checkmark \\
-    Per-Gaussian InfoNCE              & -- & -- & -- & -- & -- & \checkmark & \checkmark \\
-    Colour residual (DC/AC split)     & \checkmark & \checkmark & \checkmark & \checkmark & \checkmark & \checkmark & \checkmark \\
+    Hilbert reorder                    & -- & \checkmark & \checkmark & -- & -- & \checkmark & \checkmark \\
+    Position scaffold (Hilbert-block)  & -- & -- & \checkmark & -- & -- & \checkmark & -- \\
+    Anchor-relative decoding           & -- & -- & \checkmark & -- & -- & \checkmark & -- \\
+    Token-local decoder                & -- & -- & -- & \checkmark & \checkmark & \checkmark & \checkmark \\
+    Local encoder ($\omega = 1$)       & -- & -- & -- & -- & \checkmark & \checkmark & \checkmark \\
+    Structured per-token latent        & -- & -- & -- & -- & \checkmark & \checkmark & \checkmark \\
+    Local disentangle ($z_s$ + $z_g$)  & -- & -- & -- & -- & -- & \checkmark & \checkmark \\
+    Cross-recon $+$ ortho              & -- & -- & -- & -- & -- & \checkmark & \checkmark \\
+    Scene-semantic head                & -- & -- & -- & -- & -- & \checkmark & \checkmark \\
+    Scene-layout head                  & -- & -- & -- & -- & -- & \checkmark & \checkmark \\
+    Per-Gaussian InfoNCE               & -- & -- & -- & -- & -- & \checkmark & \checkmark \\
+    Colour residual (DC/AC split)      & \checkmark & \checkmark & \checkmark & \checkmark & \checkmark & \checkmark & \checkmark \\
     \midrule
-    \emph{Latent schema}              & Flat & Flat & Flat & Flat & Flat & Split & Split \\
-    \emph{Decoder params}            & \textasciitilde 777M & \textasciitilde 777M & \textasciitilde 777M & \textasciitilde 1.6M & \textasciitilde 1.6M & \textasciitilde 1.6M & \textasciitilde 1.6M \\
+    \emph{Latent schema}               & Flat & Flat & Flat & Flat & Flat & Split & Split \\
+    \emph{Decoder params}              & ${\sim}777$M & ${\sim}777$M & ${\sim}777$M & ${\sim}1.6$M & ${\sim}1.6$M & ${\sim}1.6$M & ${\sim}1.6$M \\
     \bottomrule
   \end{tabular}}
 \end{table*}

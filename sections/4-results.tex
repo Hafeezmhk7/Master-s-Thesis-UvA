@@ -178,7 +178,7 @@ I want to be honest here: even the best Stage~1 reconstruction (V6) is not a pub
 \section{Per-Gaussian Feature Visualisation}
 \label{sec:results_pca}
 
-Figure~\ref{fig:pca} visualises the per-Gaussian feature structure of V6 and V7 on the same held-out scene. For each variant I show three top-down views. The leftmost column shows a PCA of the input Gaussian features (the 14-dim vectors fed to the encoder) projected to three components and mapped to RGB. The middle column shows the same PCA basis applied to the Gaussian features reconstructed by the decoder. The rightmost column shows a PCA of the per-Gaussian InfoNCE projection $f_i$ (Eq.~\eqref{eq:infonce}) on the labelled Gaussians only.
+Figure~\ref{fig:pca} visualises the per-Gaussian feature structure of V6 and V7 on the same held-out gym scene used in Figure~\ref{fig:recon}. For each variant I show three top-down views. The leftmost column shows a PCA of the input Gaussian features (the 14-dim vectors fed to the encoder) projected to three components and mapped to RGB. The middle column shows the same PCA basis applied to the Gaussian features reconstructed by the decoder. The rightmost column shows a PCA of the per-Gaussian InfoNCE projection $f_i$ (Eq.~\eqref{eq:infonce}) on the labelled Gaussians only.
 
 \begin{figure*}[t]
   \centering
@@ -214,7 +214,7 @@ Figure~\ref{fig:pca} visualises the per-Gaussian feature structure of V6 and V7 
     \caption*{(f) V7: per-Gaussian InfoNCE PCA}
   \end{subfigure}
   \caption[Per-Gaussian feature PCA visualisations]{%
-    \textbf{Per-Gaussian feature structure on a held-out scene.}
+    \textbf{Per-Gaussian feature structure on the same held-out gym scene used in Figure~\ref{fig:recon}.}
     Top row: V6 (with position scaffold). Bottom row: V7 (without).
     \emph{Left column:} a 3-component PCA of the input Gaussian features (14-dim) mapped to RGB. Spatially adjacent points receive consistent colours; each piece of furniture forms a coherent colour patch.
     \emph{Middle column:} the same PCA basis applied to the reconstructed Gaussians. The mapping from spatial region to colour is preserved, which shows that the latent retains per-primitive feature identity, not just bulk geometry. V6 is denser; V7 is sparser but still preserves the colour-to-region correspondence.
